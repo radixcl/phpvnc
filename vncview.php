@@ -16,30 +16,58 @@ $socket = '/tmp/vnc.sock';
 </html>
 
 <script type="text/javascript">
-	var _ctrl = 0;
-	var _shift = 0;
-	
-	/*$(document).keypress(function(e) {
-		var keyCode = e.charCode;
-		var charTyped = String.fromCharCode(keyCode);
-		console.log('keypress(); ' + keyCode + " : " + charTyped);
 		
-		if (keyCode === 3) {
-			// ctrl C
-			$.post( "vncevent.php", JSON.stringify({ op: "ctrlkey", code: 0x63, spkey: 0x00 }) );
-			return false;
-		}
-		
-		$.post( "vncevent.php", JSON.stringify({ op: "keypress", pressed: 1, code: keyCode, spkey: 0x00 }) );
-		$.post( "vncevent.php", JSON.stringify({ op: "keypress", pressed: 0, code: keyCode, spkey: 0x00 }) );
-	});*/
+	function keyPress(e, upDown) {
+	  var keyCode = e.keyCode;
+	  var spKey = 0;
+	  var retcode = true;
+	  
+	  console.log('keyPress(' + upDown + '); keycode ' + keyCode);
+	  
+	  // specials
+	  if (keyCode == 8) { // backspace
+		spKey = 0xff;
+		retcode = false;
+	  }
+	  
+	  if (keyCode == 13) { // enter
+		spKey = 0xff;
+		retcode = false;
+	  }
+	  	  
+	  if (keyCode == 16) {
+		// left shift
+		spKey = 0xff;
+		keyCode = 0xe1;
+		retcode = false;
+	  }
+
+	  if (keyCode == 16) {
+		// right shift
+		spKey = 0xff;
+		keyCode = 0xe1;
+		retcode = false;
+	  }
+	  
+	  if (keyCode == 17) {
+		//control
+		spKey = 0xff;
+		keyCode = 0xe3;
+		retcode = false;
+	  }
+	  
+	  var bytes;
+	  bytes = [0x04, upDown, 0x00, 0x00, 0x00, 0x00, spKey, keyCode];
+	  $.post("vncevent.php", JSON.stringify({ op: 'rawmsg', socket: '<?=$socket?>', rawdata: bytes }));
+	  return(retcode);
+	}
 	
 	$(document).keydown(function(e){
-		var keyCode = e.keyCode;
-		console.log('keydown(); keycode ' + keyCode);
-		var bytes;
-		bytes = [0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, keyCode];
-		$.post("vncevent.php", JSON.stringify({ op: 'rawmsg', socket: '<?=$socket?>', rawdata: bytes }));
+	  return(keyPress(e, 1));
+	});
+
+	$(document).keyup(function(e){
+	  return(keyPress(e, 0));
 	});
 	
 	/*$(document).keydown(function(e){
