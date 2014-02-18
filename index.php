@@ -2,7 +2,7 @@
 require('./phpvnc.php');
 
 $client = new vncClient();
-$auth = $client->auth('192.168.1.2', 5901, 'passw0rd');
+$auth = $client->auth('localhost', 5900, 'kaka80');
 $init = $client->serverInit();
 //$img = $client->getRectangle();
 //var_dump($img);

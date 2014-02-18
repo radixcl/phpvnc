@@ -45,7 +45,10 @@ class vncClient {
 		return $ret;
 	}
 
-	private function hex_dump($data, $newline="\n") {
+	public function hex_dump($data, $newline="\n", $buffer=false) {
+		
+		if ($buffer == true)
+			ob_start();
 		static $from = '';
 		static $to = '';
 		
@@ -71,6 +74,12 @@ class vncClient {
 		  echo sprintf('%6X',$offset).' : '.implode(' ', str_split($line,2)) . '[' . $chars[$i] . ']' . $newline;
 		  $offset += $width;
 		}
+		
+		if ($buffer == true) {
+			$buf = ob_get_clean();
+			return($buf);
+		}
+		
 	}
 
 
@@ -229,23 +238,79 @@ class vncClient {
 		return($img);	
 	}
 
-	public function streamMjpeg() {
+	public function putSocket($path, $data) {
+		$socket = socket_create(AF_UNIX, SOCK_STREAM, 0);
+		if (!@socket_connect($socket, $path)) {
+			echo "socket_connect error";
+			return(false);
+		}
+		$ret = socket_write($socket, $data, strlen($data));
+		socket_close($socket);
+		return($ret);
+		
+	}
+	public function streamMjpeg($socknam) {
+		// setup socket for receiving commands
+		@unlink($socknam);	// delete if already exists
+
+		$socket = socket_create(AF_UNIX, SOCK_STREAM, 0);
+		if (!socket_bind($socket, $socknam)) {
+			echo 'error socket_bind';
+			@unlink($socknam);
+			die();
+		}
+		
+		if (!socket_listen($socket)) {
+			echo 'error socket_listen';
+			@unlink($socknam);
+			die();
+		}
+		
+		if (!socket_set_nonblock($socket)) {
+			echo 'error stream_set_blocking';
+			@unlink($socknam);
+			die();
+		}
+
+
 		set_time_limit(0);
 		header("Cache-Control: no-cache");
 		header("Cache-Control: private");
 		header("Pragma: no-cache");
 		header('content-type: multipart/x-mixed-replace; boundary=--phpvncbound');
 		for(;;) {
+			$__then = microtime();
 			$img = $this->getRectangle();
 			ob_start();
 			imagejpeg($img);
 			imagedestroy($img);
 			echo ob_get_clean(); 
+			$__now = microtime();
+			error_log(sprintf("Elapsed:  %f", $__now-$__then));
 
-			time_nanosleep(0, 250000000);
+			//time_nanosleep(0, 250000000);
 			echo "--phpvncbound\n";
 			echo "Content-type: image/jpeg\n\n";
+			
+			// check ipc socket for incomming commands
+			if(($newc = @socket_accept($socket)) !== false) {	// got new cmd
+				$ipc_in_buf = @socket_read($newc, 1024, PHP_BINARY_READ);
+				error_log("Got socket cmd");
+				error_log($this->hex_dump($ipc_in_buf, "\n", 1));
+				// write incoming command to rfb
+				$this->dwrite($this->fp, $ipc_in_buf);
+				socket_close($newc);
+				unset($newc);
+			}
 		}
+	}
+	
+	public function sendKey($pressed, $key, $spkey) {
+		// http://tools.ietf.org/html/rfc6143#section-7.5.4
+		
+		$REQ = pack('CCScccc', 4, $pressed, 0, 0,0, $spkey, $key);
+		error_log($this->hex_dump($REQ, "\n", true));
+		$this->dwrite($this->fp, $REQ);
 	}
 }
 
