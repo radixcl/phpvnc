@@ -52,7 +52,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 	  
 	  var bytes;
 	  bytes = [0x04, upDown, 0x00, 0x00, 0x00, 0x00, spKey, keyCode];
-	  $.post("vncevent.php", JSON.stringify({ session: '<?=$sesid?>', op: 'rawmsg', rawdata: bytes }));
+	  $.post("vncevent.php", JSON.stringify({ shid: '<?=$_SESSION['shid']?>', op: 'rawmsg', rawdata: bytes }));
 	  return(retcode);
 	}
 	

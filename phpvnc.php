@@ -1,6 +1,8 @@
 <?php
 
-define('_DEBUG', false);
+require_once('./config.php');
+
+define('_DEBUG', true);
 
 function debug($str) {
 	if (_DEBUG == true)
@@ -21,10 +23,10 @@ class vncClient {
 	private function dwrite($fp, $data) {
 		$i = fwrite($fp, $data, strlen($data));
 		fflush($fp);
-		if (_DEBUG == true) {
-			printf("--- WRITE(%d)\t", $i);
-			$this->hex_dump($data);		
-		}
+		/*if (_DEBUG == true) {
+			error_log(sprintf("--- WRITE(%d)\t", $i));
+			error_log($this->hex_dump($data, "\n", true));		
+		}*/
 		return($i);
 	}
 
@@ -32,19 +34,19 @@ class vncClient {
 		stream_set_blocking($fp, 0);
 		$data = fread($fp, $len);
 		stream_set_blocking($fp, 1);
-		if (_DEBUG == true) {		
-			printf("--- READ(%d)\t", strlen($data));
-			$this->hex_dump($data);
-		}
+		/*if (_DEBUG == true) {		
+			error_log(sprintf("--- READ(%d)\t", strlen($data)));
+			error_log($this->hex_dump($data, "\n", true));
+		}*/
 		return($data);		
 	}
 	
 	private function dread($fp, $len) {
 		$data = fread($fp, $len);
-		if (_DEBUG == true) {		
-			printf("--- READ(%d)\t", strlen($data));
-			$this->hex_dump($data);
-		}
+		/*if (_DEBUG == true) {		
+			error_log(sprintf("--- READ(%d)\t", strlen($data)));
+			error_log($this->hex_dump($data, "\n", true));
+		}*/
 		return($data);
 	}
 
@@ -157,6 +159,7 @@ class vncClient {
 			return false;
 		}
 		// auth OK
+		debug("Auth OK");
 		return true;
 	}
 	
@@ -280,29 +283,16 @@ class vncClient {
 		
 	}
 	
-	public function streamMjpeg($socknam) {
-		// setup socket for receiving commands
-		@unlink($socknam);	// delete if already exists
+	public function streamMjpeg($shid) {
+		global $config;
 
-		error_log("Create: $socknam");
-		$socket = socket_create(AF_UNIX, SOCK_STREAM, 0);
-		if (!socket_bind($socket, $socknam)) {
-			debug('error socket_bind');
-			@unlink($socknam);
-			die();
-		}
+		ob_implicit_flush(true);
+		ob_end_flush();
 
-		if (!socket_listen($socket)) {
-			debug('error socket_listen');
-			@unlink($socknam);
-			die();
-		}
-
-		if (!socket_set_nonblock($socket)) {
-			debug('error stream_set_blocking');
-			@unlink($socknam);
-			die();
-		}
+		//setup shared memory segment
+		$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
+		debug("SHM: " . $config->shm->key . " " . $config->shm->size . " " . $config->shm->permissions);
+		debug("Starting mjpeg stream to " . $this->hostname);
 
 		set_time_limit(0);
 		header("Cache-Control: no-cache");
@@ -311,32 +301,26 @@ class vncClient {
 		header('content-type: multipart/x-mixed-replace; boundary=--phpvncbound');
 		echo "Content-type: image/jpeg\n\n";
 		
-		$img = $this->getRectangle(0, NULL);
+		$img = $this->getRectangle(0, NULL);	// initial screen
 		imagejpeg($img);
 		
 		echo "--phpvncbound\n";
 		echo "Content-type: image/jpeg\n\n";
 		for(;;) {
-			ob_start();
 			$img = $this->getRectangle(1, $img);
 			imagejpeg($img);
-			echo ob_get_clean(); 
 
 			echo "--phpvncbound\n";
 			echo "Content-type: image/jpeg\n\n";
-
-			// check ipc socket for incomming commands
-			if(($newc = @socket_accept($socket)) !== false) {	// got new cmd
-				$ipc_in_buf = @socket_read($newc, 1024, PHP_BINARY_READ);
-				error_log("Got socket cmd $socknam");
-				error_log($this->hex_dump($ipc_in_buf, "\n", 1));
-				// write incoming command to rfb
-				$this->dwrite($this->fp, $ipc_in_buf);
-				socket_close($newc);
-				unset($newc);
+			
+			// read data from shared memory and send it to RFB
+			$shm_data = @shm_get_var($segment, $_SESSION['shid']);
+			if (trim($shm_data) != '') {
+				debug("shm got: " . $this->hex_dump($shm_data, "\n", 1));
+				$this->dwrite($this->fp, $shm_data);
+				shm_put_var($segment, $_SESSION['shid'], '');
 			}
 
-			//time_nanosleep(0, 500000000);
 			time_nanosleep(0, 125000000);
 		}
 	}
@@ -346,7 +330,7 @@ class vncClient {
 		// http://tools.ietf.org/html/rfc6143#section-7.5.4
 		
 		$REQ = pack('CCScccc', 4, $pressed, 0, 0,0, $spkey, $key);
-		error_log($this->hex_dump($REQ, "\n", true));
+		debug($this->hex_dump($REQ, "\n", true));
 		$this->dwrite($this->fp, $REQ);
 	}
 }
