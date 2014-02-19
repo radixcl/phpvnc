@@ -292,7 +292,7 @@ class vncClient {
 		//setup shared memory segment
 		$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
 		debug("SHM: " . $config->shm->key . " " . $config->shm->size . " " . $config->shm->permissions);
-		debug("Starting mjpeg stream to " . $this->hostname);
+		debug("Starting mjpeg stream to " . $this->host);
 
 		set_time_limit(0);
 		header("Cache-Control: no-cache");
