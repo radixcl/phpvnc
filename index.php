@@ -1,12 +1,15 @@
-<?php
-require('./phpvnc.php');
-
-$client = new vncClient();
-$auth = $client->auth('192.168.1.2', 5901, 'passw0rd');
-$init = $client->serverInit();
-//$img = $client->getRectangle();
-//var_dump($img);
-
-//imagepng($img, "lala.png");
-
-$client->streamMjpeg();
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>PHPVNC client</title>
+	</head>
+	<body>
+		<h1>PHPvnc client</h1>
+		<form method="post" action="setsession.php">
+			Host: <input name="host" type="text" value="localhost"><br>
+			Port: <input name="port" type="text" value="5900"><br>
+			Password: <input name="passwd" type="password"><br>
+			<input type="submit">
+		</form>
+	</body>
+</html>

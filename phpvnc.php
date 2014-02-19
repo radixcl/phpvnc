@@ -1,6 +1,13 @@
 <?php
 
-define('_DEBUG', false);
+require_once('./config.php');
+
+define('_DEBUG', true);
+
+function debug($str) {
+	if (_DEBUG == true)
+		error_log($str);
+}
 
 class vncClient {
 	private $host;
@@ -16,24 +23,34 @@ class vncClient {
 	private function dwrite($fp, $data) {
 		$i = fwrite($fp, $data, strlen($data));
 		fflush($fp);
-		if (_DEBUG == true) {
-			printf("--- WRITE(%d)\t", $i);
-			$this->hex_dump($data);		
-		}
+		/*if (_DEBUG == true) {
+			error_log(sprintf("--- WRITE(%d)\t", $i));
+			error_log($this->hex_dump($data, "\n", true));		
+		}*/
 		return($i);
 	}
 
+	private function dread_nonblocking($fp, $len) {
+		stream_set_blocking($fp, 0);
+		$data = fread($fp, $len);
+		stream_set_blocking($fp, 1);
+		/*if (_DEBUG == true) {		
+			error_log(sprintf("--- READ(%d)\t", strlen($data)));
+			error_log($this->hex_dump($data, "\n", true));
+		}*/
+		return($data);		
+	}
+	
 	private function dread($fp, $len) {
 		$data = fread($fp, $len);
-		if (_DEBUG == true) {		
-			printf("--- READ(%d)\t", strlen($data));
-			$this->hex_dump($data);
-		}
+		/*if (_DEBUG == true) {		
+			error_log(sprintf("--- READ(%d)\t", strlen($data)));
+			error_log($this->hex_dump($data, "\n", true));
+		}*/
 		return($data);
 	}
 
 	private function fullread($sd, $len) {
-		// hay q mejorar esta mierda... consume mucha cpu
 		$ret = '';
 		$read = 0;
 		
@@ -45,7 +62,10 @@ class vncClient {
 		return $ret;
 	}
 
-	private function hex_dump($data, $newline="\n") {
+	public function hex_dump($data, $newline="\n", $buffer=false) {
+		
+		if ($buffer == true)
+			ob_start();
 		static $from = '';
 		static $to = '';
 		
@@ -71,10 +91,15 @@ class vncClient {
 		  echo sprintf('%6X',$offset).' : '.implode(' ', str_split($line,2)) . '[' . $chars[$i] . ']' . $newline;
 		  $offset += $width;
 		}
+		
+		if ($buffer == true) {
+			$buf = ob_get_clean();
+			return($buf);
+		}
+		
 	}
 
-
-
+	
 	private function mirrorBits($k) {
 		$arr = unpack('c*', $k);
 		$ret = '';
@@ -134,6 +159,7 @@ class vncClient {
 			return false;
 		}
 		// auth OK
+		debug("Auth OK");
 		return true;
 	}
 	
@@ -159,7 +185,7 @@ class vncClient {
 		return($toReturn);
 	}
 	
-	public function getRectangle() {
+	public function getRectangle($incremental=0, $oldimg=NULL) {
 		// server data
 		$width = $this->sdata['size1']; 
 		$height = $this->sdata['size2'];
@@ -176,17 +202,33 @@ class vncClient {
 		$SLEN = $this->sdata['slen'];		
 	
 		// send FramebufferUpdateRequest
-		$REQ = pack('C2n4', 3, 0, 0, 0, $width, $height);
+		$REQ = pack('C2n4', 3, $incremental, 0, 0, $width, $height);
 		$this->dwrite($this->fp, $REQ);
 		
 		// get FramebufferUpdate
-		$r = $this->dread($this->fp, 4);		
+		if ($incremental == 0)
+			$r = $this->dread($this->fp, 4);
+		else
+			$r = $this->dread_nonblocking($this->fp, 4);
+
+		//error_log("strlen(r): " . strlen($r));
+		//error_log($this->hex_dump($r, "\n", 1));
+		
+		if (strlen($r) == 0 && $oldimg != NULL && $incremental == 1) {
+			// no changes on image
+			//error_log("no changes");
+			return($oldimg);
+		}
+		
 		$data = unpack('Cflag/x/ncount', $r);
 	
 		//echo "flag: $data[flag]\n";
 		//echo "rectangles: $data[count]\n";
 		
-		$img = imagecreatetruecolor($width, $height);
+		if ($oldimg == NULL)
+			$img = imagecreatetruecolor($width, $height);
+		else
+			$img = $oldimg;
 		
 		for ($rects=0; $rects < $data['count']; $rects++) {
 			//Obtener la informaci—n rect‡ngulo
@@ -206,7 +248,7 @@ class vncClient {
 				//echo "count rarr: " . count($rarr) . ":$readmax\n";
 				//echo "$i:$j\n";
 				if (count($rarr) < $readmax) {
-					//echo("Raw data is not correct. $i\n");
+					debug("Raw data is not correct. $i\n");
 					break;
 				}
 			 
@@ -229,23 +271,67 @@ class vncClient {
 		return($img);	
 	}
 
-	public function streamMjpeg() {
+	public function putSocket($path, $data) {
+		$socket = socket_create(AF_UNIX, SOCK_STREAM, 0);
+		if (!@socket_connect($socket, $path)) {
+			debug("socket_connect error");
+			return(false);
+		}
+		$ret = socket_write($socket, $data, strlen($data));
+		socket_close($socket);
+		return($ret);
+		
+	}
+	
+	public function streamMjpeg($shid) {
+		global $config;
+
+		ob_implicit_flush(true);
+		ob_end_flush();
+
+		//setup shared memory segment
+		$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
+		debug("SHM: " . $config->shm->key . " " . $config->shm->size . " " . $config->shm->permissions);
+		debug("Starting mjpeg stream to " . $this->host);
+
 		set_time_limit(0);
 		header("Cache-Control: no-cache");
 		header("Cache-Control: private");
 		header("Pragma: no-cache");
 		header('content-type: multipart/x-mixed-replace; boundary=--phpvncbound');
+		echo "Content-type: image/jpeg\n\n";
+		
+		$img = $this->getRectangle(0, NULL);	// initial screen
+		imagejpeg($img);
+		
+		echo "--phpvncbound\n";
+		echo "Content-type: image/jpeg\n\n";
 		for(;;) {
-			$img = $this->getRectangle();
-			ob_start();
+			$img = $this->getRectangle(1, $img);
 			imagejpeg($img);
-			imagedestroy($img);
-			echo ob_get_clean(); 
 
-			time_nanosleep(0, 250000000);
 			echo "--phpvncbound\n";
 			echo "Content-type: image/jpeg\n\n";
+			
+			// read data from shared memory and send it to RFB
+			$shm_data = @shm_get_var($segment, $_SESSION['shid']);
+			if (trim($shm_data) != '') {
+				debug("shm got: " . $this->hex_dump($shm_data, "\n", 1));
+				$this->dwrite($this->fp, $shm_data);
+				shm_put_var($segment, $_SESSION['shid'], '');
+			}
+
+			time_nanosleep(0, 125000000);
 		}
+	}
+	
+	
+	public function sendKey($pressed, $key, $spkey) {
+		// http://tools.ietf.org/html/rfc6143#section-7.5.4
+		
+		$REQ = pack('CCScccc', 4, $pressed, 0, 0,0, $spkey, $key);
+		debug($this->hex_dump($REQ, "\n", true));
+		$this->dwrite($this->fp, $REQ);
 	}
 }
 
