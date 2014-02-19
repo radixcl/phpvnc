@@ -284,6 +284,7 @@ class vncClient {
 		// setup socket for receiving commands
 		@unlink($socknam);	// delete if already exists
 
+		error_log("Create: $socknam");
 		$socket = socket_create(AF_UNIX, SOCK_STREAM, 0);
 		if (!socket_bind($socket, $socknam)) {
 			debug('error socket_bind');
@@ -327,7 +328,7 @@ class vncClient {
 			// check ipc socket for incomming commands
 			if(($newc = @socket_accept($socket)) !== false) {	// got new cmd
 				$ipc_in_buf = @socket_read($newc, 1024, PHP_BINARY_READ);
-				error_log("Got socket cmd");
+				error_log("Got socket cmd $socknam");
 				error_log($this->hex_dump($ipc_in_buf, "\n", 1));
 				// write incoming command to rfb
 				$this->dwrite($this->fp, $ipc_in_buf);

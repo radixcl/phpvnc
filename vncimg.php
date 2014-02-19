@@ -1,10 +1,11 @@
 <?php
 require('./phpvnc.php');
 
-$host = $_COOKIE['host'];
-$port = $_COOKIE['port'];
-$passwd = $_COOKIE['passwd'];
-$socket = $_GET['socket'];
+session_start();
+$host = $_SESSION['host'];
+$port = $_SESSION['port'];
+$passwd = $_SESSION['passwd'];
+$socket = $_SESSION['socket'];
 
 $client = new vncClient();
 $auth = $client->auth($host, $port, $passwd);
