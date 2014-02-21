@@ -9,6 +9,11 @@ function debug($str) {
 		error_log($str);
 }
 
+function debug_dump($data) {
+	if (_DEBUG == true)
+		error_log(vncClient::hex_dump($data, "\n", true));
+}
+
 class vncClient {
 	private $host;
 	private $port;
@@ -19,9 +24,9 @@ class vncClient {
 	public $errno;
 	public $errstr;
 	public $hostname;
-
+	
 	private function dwrite($fp, $data) {
-		$i = fwrite($fp, $data, strlen($data));
+		$i = @fwrite($fp, $data, strlen($data));
 		fflush($fp);
 		/*if (_DEBUG == true) {
 			error_log(sprintf("--- WRITE(%d)\t", $i));
@@ -32,7 +37,7 @@ class vncClient {
 
 	private function dread_nonblocking($fp, $len) {
 		stream_set_blocking($fp, 0);
-		$data = fread($fp, $len);
+		$data = @fread($fp, $len);
 		stream_set_blocking($fp, 1);
 		/*if (_DEBUG == true) {		
 			error_log(sprintf("--- READ(%d)\t", strlen($data)));
@@ -42,7 +47,7 @@ class vncClient {
 	}
 	
 	private function dread($fp, $len) {
-		$data = fread($fp, $len);
+		$data = @fread($fp, $len);
 		/*if (_DEBUG == true) {		
 			error_log(sprintf("--- READ(%d)\t", strlen($data)));
 			error_log($this->hex_dump($data, "\n", true));
@@ -54,7 +59,7 @@ class vncClient {
 		$ret = '';
 		$read = 0;
 		
-		while ($read < $len && ($buf = fread($sd, $len - $read))) {
+		while ($read < $len && ($buf = @fread($sd, $len - $read))) {
 		  $read += strlen($buf);
 		  $ret .= $buf;
 		}
@@ -62,7 +67,7 @@ class vncClient {
 		return $ret;
 	}
 
-	public function hex_dump($data, $newline="\n", $buffer=false) {
+	static public function hex_dump($data, $newline="\n", $buffer=false) {
 		
 		if ($buffer == true)
 			ob_start();
@@ -182,15 +187,17 @@ class vncClient {
 		$toReturn = new stdClass();
 		$toReturn->hostname = $hostname;
 		$toReturn->sdata = $this->sdata;
+		debug(__FUNCTION__ . '(); ' . print_r($this->sdata, 1));
 		return($toReturn);
 	}
 	
 	public function getRectangle($incremental=0, $oldimg=NULL) {
+		//debug(__FUNCTION__ . '(); start');
 		// server data
-		$width = $this->sdata['size1']; 
-		$height = $this->sdata['size2'];
-		$BitsPerPixel = $this->sdata['flag1']; 
-		$Profundidad = $this->sdata['flag2'];
+		$width = $this->sdata['size1']; 	// remote screen widht
+		$height = $this->sdata['size2'];	// remote screen height
+		$BitsPerPixel = $this->sdata['flag1']; 	// bpp
+		$Profundidad = $this->sdata['flag2'];	// color depth
 		$bigEndianFlag = $this->sdata['flag3'];
 		$trueColorFlag = $this->sdata['flag4'];
 		$RedMAX = $this->sdata['max1'];
@@ -203,20 +210,59 @@ class vncClient {
 	
 		// send FramebufferUpdateRequest
 		$REQ = pack('C2n4', 3, $incremental, 0, 0, $width, $height);
-		$this->dwrite($this->fp, $REQ);
+		if ($this->dwrite($this->fp, $REQ) === false) return false;
 		
 		// get FramebufferUpdate
 		if ($incremental == 0)
-			$r = $this->dread($this->fp, 4);
+			$r = $this->dread($this->fp, 4);	// RFB update is 4 bytes long
 		else
 			$r = $this->dread_nonblocking($this->fp, 4);
-
+		
+		if ($r === false) return false;	
 		//error_log("strlen(r): " . strlen($r));
 		//error_log($this->hex_dump($r, "\n", 1));
 		
 		if (strlen($r) == 0 && $oldimg != NULL && $incremental == 1) {
 			// no changes on image
-			//error_log("no changes");
+			//debug(__FUNCTION__ . '(); no changes. end');
+			return($oldimg);
+		}
+
+		// manage non RFB messages
+		if (ord($r{0}) == 1) {	// SetColourMapEntries
+			debug(__FUNCTION__ . '(); got SetColourMapEntries');
+			// need to read 6 more bytes
+			$r .= $this->dread($this->fp, 6);
+			// FIXME: we need to do something here to manage this message
+			return($oldimg);
+		}
+
+		if (ord($r{0}) == 2) {	// Beep
+			debug(__FUNCTION__ . '(); got Beep');
+			return($oldimg);
+		}
+
+		if (ord($r{0}) == 3) {	// Beep
+			debug(__FUNCTION__ . '(); got server cut text');
+			return($oldimg);
+			$r = $this->dread($this->fp, 4);	// text lenght (4 bytes)
+			$txtLenght = unpack('l', $r);
+			debug(__FUNCTION__ . '(); text lenght: ' . $txtLenght[0]);
+			// read text
+			$r = $this->dread($this->fp, $txtLenght[0]);
+			return($oldimg);
+		}
+		
+		if (ord($r{0}) == 255) {
+			// what the fuck does this message means?
+			return($oldimg);
+		}
+
+		// check if received data is really a framebuffer update
+		if (ord($r{0}) != 0) {
+			// not a rfb update
+			debug(__FUNCTION__ . '(); NOT a rfbupdate (' . ord($r{0}) . ')!!. end');
+			debug_dump($r);
 			return($oldimg);
 		}
 		
@@ -230,28 +276,45 @@ class vncClient {
 		else
 			$img = $oldimg;
 		
+		debug(__FUNCTION__ . '(); total rectalgles: ' . $data['count']);
 		for ($rects=0; $rects < $data['count']; $rects++) {
+			debug(__FUNCTION__ . '(); working on rectangle: ' . $rects+1);
 			//Obtener la informaci—n rect‡ngulo
 			$r = $this->dread($this->fp, 12);
+			if ($r === false) return false;
+			debug(__FUNCTION__ . '(); ' . strlen($r));
+			if (strlen($r) == 0) {
+				debug(__FUNCTION__ . '(); rect ' . $rects+1 .  ' got no data!');
+				break;
+			}
 			$rect = unpack('nx/ny/nwidth/nheight/Ntype', $r);
 			//echo "RECT $rects:\n";
 			//print_r($rect);
+			debug(__FUNCTION__ . '(lala); rect ' . (int)$rects+1 . " info: $rect[width]x$rect[height]x$BitsPerPixel x: $rect[x] y: $rect[y]");
+			
+			if ($rect['width'] > $width) {
+				debug(__FUNCTION__ . '(); rect ' . (int)$rects+1 . " width: $rect[width] > $width !! ERROR");
+				break;
+			}
+			if ($rect['height'] > $height) {
+				debug(__FUNCTION__ . '(); rect ' . (int)$rects+1 . " height: $rect[height] > $height !! ERROR");
+				break;
+			}
 		
 			$divisor = 8;
 			$readmax = $rect['width'] * $BitsPerPixel / $divisor;
-			//echo "BPP: $BitsPerPixel\n";
-			//echo "readmax: $readmax\n";
 		
+			debug(__FUNCTION__ . '(); rect ' . $rects+1 . ' start drawing');
 			for ($i = 0; $i < $rect['height']; $i++) {
 				$r = $this->fullread($this->fp, $readmax);
+				if ($r === false) return false;	
 				$rarr = unpack('C*', $r);
-				//echo "count rarr: " . count($rarr) . ":$readmax\n";
-				//echo "$i:$j\n";
 				if (count($rarr) < $readmax) {
 					debug("Raw data is not correct. $i\n");
 					break;
 				}
 			 
+				time_nanosleep(0, 1000);
 				for ($j = 0; $j < $rect['width']; $j++) {
 					$offset = $j*4+1;
 					//echo "offset: $offset\n";
@@ -259,15 +322,16 @@ class vncClient {
 					$verde = $rarr[$offset + $greenshift / $divisor];
 					$azul = $rarr[$offset + $blueshift / $divisor];
 					$color = imagecolorallocate($img, $roja, $verde, $azul);
-					//echo "draw " . ($rect['x'] + $J) . "x" . ($rect['y'] + $i) . " ";
-					//echo ".";
 					if (imagesetpixel($img, $rect['x'] + $j, $rect['y'] + $i, $color) == false) {
 						die("Draw color failed.");
 					}			 
 				}
 			}
+			debug(__FUNCTION__ . '(); rect ' . $rects+1 . ' end drawing');
+
 			
 		}
+		//debug(__FUNCTION__ . '(); end');
 		return($img);	
 	}
 
@@ -308,6 +372,10 @@ class vncClient {
 		echo "Content-type: image/jpeg\n\n";
 		for(;;) {
 			$img = $this->getRectangle(1, $img);
+			if ($img === false) {
+				debug("stream terminated");
+				return(false);
+			}
 			imagejpeg($img);
 
 			echo "--phpvncbound\n";

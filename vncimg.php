@@ -20,8 +20,7 @@ $socket = $_SESSION['socket'];
 $client = new vncClient();
 $auth = $client->auth($host, $port, $passwd);
 $init = $client->serverInit();
-$client->streamMjpeg($socket);
-
+$stat = $client->streamMjpeg($socket);
 
 function _cleanup() {
 	global $config;

@@ -21,7 +21,7 @@ switch($data['op']) {
 		@$shid_test = shmop_open($config->shm->key, "a", 0666, 0);
 		if (empty($shid_test)) {
 			// shm does not exists
-			debug("shared memory segment does not exists, stream disconnected?");
+			debug(__FUNCTION__ . "(); shared memory segment does not exists, stream disconnected?");
 			break;
 		}
 		unset($shid_test);
@@ -38,6 +38,8 @@ switch($data['op']) {
 
 		$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
 		$shm_data = @shm_get_var($segment, $shid);
-		shm_put_var($segment, $shid, $shm_data . $bytes);
+		if (shm_put_var($segment, $shid, $shm_data . $bytes) === false) {
+			debug(__FUNCTION__ . '(); Could not write to shared memory.');
+		}
 		break;
 }
