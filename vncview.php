@@ -35,21 +35,21 @@ $sesid = $_COOKIE['PHPSESSID'];
 	return(a);
   }
   
-  /* Convert value as 8-bit unsigned integer to 2 digit hexadecimal number. */
+  // Convert value as 8-bit unsigned integer to 2 digit hexadecimal number.
   function hex8(val) {
     val &= 0xFF;
     var hex = val.toString(16).toUpperCase();
     return ("00" + hex).slice(-2);
   }
 
-  /* Convert value as 16-bit unsigned integer to 4 digit hexadecimal number. */
+  // Convert value as 16-bit unsigned integer to 4 digit hexadecimal number.
   function hex16(val) {
 	  val &= 0xFFFF;
 	  var hex = val.toString(16).toUpperCase();
 	  return ("0000" + hex).slice(-4);
   }
   
-  /* Convert value as 32-bit unsigned integer to 8 digit hexadecimal number. */
+  // Convert value as 32-bit unsigned integer to 8 digit hexadecimal number.
   function hex32(val) {
 	  val &= 0xFFFFFFFF;
 	  var hex = val.toString(16).toUpperCase();
@@ -103,25 +103,28 @@ $sesid = $_COOKIE['PHPSESSID'];
   var mouseScrollUp = 0;
   var mouseScrollDown = 0;
   
+  var shid = '<?=$_SESSION['shid']?>';
+  
   function sendMouseEvent(x, y, lbutton, rbutton, mbutton, sup, sdown) {
 	var bytes = [];
 	var buttonMask;
 	var X;
 	var Y;
-	buttonMask = parseInt("0x" + binaryToHex( lbutton.toString() + rbutton.toString() + mbutton.toString() + sup.toString() + sdown.toString() + '000').result);
-	console.log(buttonMask);
+	buttonMask = parseInt(lbutton + (rbutton*2) + (mbutton*4) + (sup*8) + (sdown*16));
+	//buttonMask = parseInt("0x" + binaryToHex( lbutton.toString() + (rbutton*2).toString() + (mbutton*4).toString() + (sup*8).toString() + (sdown*16).toString() + '000').result);
+	console.log('buttonMask: 0x' + hex8(buttonMask));
 	//bytes = [0x05, buttonMask, 0x00, X, 0x00, Y];
 	bytes.push(0x05);
 	bytes.push(buttonMask);
 	X = hexToArray(hex16(x));
-	console.log("X: " + x);
+	//console.log("X: " + x);
 	bytes.push(parseInt(X[0]));
 	bytes.push(parseInt(X[1]));
 	Y = hexToArray(hex16(y));
-	console.log("Y: " + y);
+	//console.log("Y: " + y);
 	bytes.push(parseInt(Y[0]));
 	bytes.push(parseInt(Y[1]));
-	console.log(bytes);
+	//console.log(bytes);
 	
 	$.post("vncevent.php", JSON.stringify({ shid: '<?=$_SESSION['shid']?>', op: 'rawmsg', rawdata: bytes }));
   }
@@ -134,11 +137,43 @@ $sesid = $_COOKIE['PHPSESSID'];
 	}
   }, 1000);
   
+
+  $('#vncviewer').bind("contextmenu", function () {
+	console.log('no context menu');
+	return false;
+  });  
+  
+  // drag&drop pls...
+  $('#vncviewer').on('dragstart', function(event) { event.preventDefault(); });
+  
+  $('#vncviewer').mousedown(function(e) {
+	console.log('mousedown: ' + e.which);
+	if (e.which == 1) {
+	  mouseLeft = 1;
+	} else if (e.which == 2) {
+	  mouseMiddle = 1;
+	} else if (e.which == 3) {
+	  mouseRight = 1;
+	}
+	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseRight, mouseMiddle, mouseScrollUp, mouseScrollDown);
+  });
+
+  $('#vncviewer').mouseup(function(e) {
+	console.log('mouseup: ' + e.which);
+	if (e.which == 1) {
+	  mouseLeft = 0;
+	} else if (e.which == 2) {
+	  mouseMiddle = 0;
+	} else if (e.which == 3) {
+	  mouseRight = 0;
+	}
+	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseRight, mouseMiddle, mouseScrollUp, mouseScrollDown);
+	event.preventDefault();
+  });
+  
   $('#vncviewer').mousemove(function(e) {
 	var offset = $(this).offset();
 	mouseMoved = true;
-	//console.log(e.clientX - offset.left);
-	//console.log(e.clientY - offset.top);
 	mouseX = (e.clientX - offset.left);
 	mouseY = (e.clientY - offset.top);
   });
