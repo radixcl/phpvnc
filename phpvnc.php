@@ -24,7 +24,7 @@ class vncClient {
 	public $errno;
 	public $errstr;
 	public $hostname;
-	
+		
 	private function dwrite($fp, $data) {
 		$i = @fwrite($fp, $data, strlen($data));
 		fflush($fp);
@@ -211,25 +211,17 @@ class vncClient {
 		// send FramebufferUpdateRequest
 		$REQ = pack('C2n4', 3, $incremental, 0, 0, $width, $height);
 		if ($this->dwrite($this->fp, $REQ) === false) return false;
-		
-		// get FramebufferUpdate
+			
+		// read first byte, we only proceed if data got is really a rfb update
 		if ($incremental == 0)
-			$r = $this->dread($this->fp, 4);	// RFB update is 4 bytes long
+			$r = $this->dread($this->fp, 1);	// RFB update is 4 bytes long, so we read 1 byte first
 		else
-			$r = $this->dread_nonblocking($this->fp, 4);
-		
+			$r = $this->dread_nonblocking($this->fp, 1);
+
 		if ($r === false) return false;	
-		//error_log("strlen(r): " . strlen($r));
-		//error_log($this->hex_dump($r, "\n", 1));
-		
-		if (strlen($r) == 0 && $oldimg != NULL && $incremental == 1) {
-			// no changes on image
-			//debug(__FUNCTION__ . '(); no changes. end');
-			return($oldimg);
-		}
 
 		// manage non RFB messages
-		if (ord($r{0}) == 1) {	// SetColourMapEntries
+		if ($r == "\01") {	// SetColourMapEntries
 			debug(__FUNCTION__ . '(); got SetColourMapEntries');
 			// need to read 6 more bytes
 			$r .= $this->dread($this->fp, 6);
@@ -237,12 +229,13 @@ class vncClient {
 			return($oldimg);
 		}
 
-		if (ord($r{0}) == 2) {	// Beep
+		if ($r == "\02") {	// Beep
 			debug(__FUNCTION__ . '(); got Beep');
+			debug_dump($r);
 			return($oldimg);
 		}
 
-		if (ord($r{0}) == 3) {	// Beep
+		if ($r == "\03") {	// Got server cut text
 			debug(__FUNCTION__ . '(); got server cut text');
 			return($oldimg);
 			$r = $this->dread($this->fp, 4);	// text lenght (4 bytes)
@@ -253,58 +246,69 @@ class vncClient {
 			return($oldimg);
 		}
 		
-		if (ord($r{0}) == 255) {
+		if ($r == "\255") {
 			// what the fuck does this message means?
 			return($oldimg);
 		}
 
 		// check if received data is really a framebuffer update
-		if (ord($r{0}) != 0) {
-			// not a rfb update
-			debug(__FUNCTION__ . '(); NOT a rfbupdate (' . ord($r{0}) . ')!!. end');
+		if (ord($r) != 0) {
+			// not a rfb update (or rfb communication out of sync (?))
+			debug(__FUNCTION__ . '(); NOT a rfbupdate (' . ord($r) . ')!!');
 			debug_dump($r);
+			//die();
 			return($oldimg);
 		}
 		
-		$data = unpack('Cflag/x/ncount', $r);
-	
-		//echo "flag: $data[flag]\n";
-		//echo "rectangles: $data[count]\n";
 		
+		// read the rest and get FramebufferUpdate
+		if ($incremental == 0)
+			$r .= $this->dread($this->fp, 3);	// RFB update is 4 bytes long, so we read the rest 3 bytes left
+		else
+			$r .= $this->dread_nonblocking($this->fp, 3);
+
+		
+		if ($r === false) return false;			// WAT
+		
+		if (strlen($r) == 0 && $oldimg != NULL && $incremental == 1) {
+			// no changes on image
+			//debug(__FUNCTION__ . '(); no changes. end');
+			return($oldimg);
+		}
+
+		
+		$data = unpack('Cflag/x/ncount', $r);
+			
 		if ($oldimg == NULL)
 			$img = imagecreatetruecolor($width, $height);
 		else
 			$img = $oldimg;
 		
-		debug(__FUNCTION__ . '(); total rectalgles: ' . $data['count']);
+		debug(__FUNCTION__ . '(); total rectangles: ' . $data['count']);
 		for ($rects=0; $rects < $data['count']; $rects++) {
-			debug(__FUNCTION__ . '(); working on rectangle: ' . $rects+1);
 			//Obtener la informaci—n rect‡ngulo
 			$r = $this->dread($this->fp, 12);
 			if ($r === false) return false;
-			debug(__FUNCTION__ . '(); ' . strlen($r));
 			if (strlen($r) == 0) {
 				debug(__FUNCTION__ . '(); rect ' . $rects+1 .  ' got no data!');
 				break;
 			}
 			$rect = unpack('nx/ny/nwidth/nheight/Ntype', $r);
-			//echo "RECT $rects:\n";
-			//print_r($rect);
-			debug(__FUNCTION__ . '(lala); rect ' . (int)$rects+1 . " info: $rect[width]x$rect[height]x$BitsPerPixel x: $rect[x] y: $rect[y]");
+			debug(sprintf('%s(); rect %d-%d info: %dx%dx%d x:%d y:%d', __FUNCTION__, (int)$rects+1, $data['count'], $rect['width'], $rect['height'], $BitsPerPixel, $rect['x'], $rect['y']));
 			
 			if ($rect['width'] > $width) {
-				debug(__FUNCTION__ . '(); rect ' . (int)$rects+1 . " width: $rect[width] > $width !! ERROR");
+				debug(sprintf('%s(); rect %d width: %d > %d !! ERROR', __FUNCTION__, $rects+1, $rect['width'], $width));
 				break;
 			}
 			if ($rect['height'] > $height) {
-				debug(__FUNCTION__ . '(); rect ' . (int)$rects+1 . " height: $rect[height] > $height !! ERROR");
+				debug(sprintf('%s(); rect %d height: %d > %d !! ERROR', __FUNCTION__, $rects+1, $rect['height'], $height));
 				break;
 			}
 		
 			$divisor = 8;
 			$readmax = $rect['width'] * $BitsPerPixel / $divisor;
-		
-			debug(__FUNCTION__ . '(); rect ' . $rects+1 . ' start drawing');
+			
+			debug(sprintf('%s(); rect %d start drawing', __FUNCTION__, $rects+1));
 			for ($i = 0; $i < $rect['height']; $i++) {
 				$r = $this->fullread($this->fp, $readmax);
 				if ($r === false) return false;	
@@ -321,17 +325,16 @@ class vncClient {
 					$roja = $rarr[$offset + $redshift / $divisor];
 					$verde = $rarr[$offset + $greenshift / $divisor];
 					$azul = $rarr[$offset + $blueshift / $divisor];
+					// fuck! this is _really_ slow!!!!
 					$color = imagecolorallocate($img, $roja, $verde, $azul);
-					if (imagesetpixel($img, $rect['x'] + $j, $rect['y'] + $i, $color) == false) {
-						die("Draw color failed.");
-					}			 
+					imagesetpixel($img, $rect['x'] + $j, $rect['y'] + $i, $color);
+					imagecolordeallocate($img, $color);
 				}
 			}
-			debug(__FUNCTION__ . '(); rect ' . $rects+1 . ' end drawing');
+			debug(sprintf('%s(); rect %d end drawing', __FUNCTION__, $rects+1));
 
 			
 		}
-		//debug(__FUNCTION__ . '(); end');
 		return($img);	
 	}
 
@@ -347,7 +350,24 @@ class vncClient {
 		
 	}
 	
-	public function streamMjpeg($shid) {
+	private function getImage($format, $img) {
+		switch($format) {
+			case 'png':
+				imagepng($img);
+				break;
+			case 'jpeg':
+				imagejpeg($img);
+				break;
+			case 'gif':
+				imagegif($img);
+				break;
+			default:
+				return(false);
+		}
+		
+	}
+	
+	public function streamImage($format, $shid) {
 		global $config;
 
 		ob_implicit_flush(true);
@@ -363,23 +383,23 @@ class vncClient {
 		header("Cache-Control: private");
 		header("Pragma: no-cache");
 		header('content-type: multipart/x-mixed-replace; boundary=--phpvncbound');
-		echo "Content-type: image/jpeg\n\n";
+		echo "Content-type: image/$format\n\n";
 		
 		$img = $this->getRectangle(0, NULL);	// initial screen
-		imagejpeg($img);
+		$this->getImage($format, $img);
 		
 		echo "--phpvncbound\n";
-		echo "Content-type: image/jpeg\n\n";
+		echo "Content-type: image/$format\n\n";
 		for(;;) {
 			$img = $this->getRectangle(1, $img);
 			if ($img === false) {
 				debug("stream terminated");
 				return(false);
 			}
-			imagejpeg($img);
+			$this->getImage($format, $img);
 
 			echo "--phpvncbound\n";
-			echo "Content-type: image/jpeg\n\n";
+			echo "Content-type: image/$format\n\n";
 			
 			// read data from shared memory and send it to RFB
 			$shm_data = @shm_get_var($segment, $_SESSION['shid']);
