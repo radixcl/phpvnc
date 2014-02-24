@@ -11,12 +11,25 @@ $sesid = $_COOKIE['PHPSESSID'];
 <html>
 <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
 
-<button type="button" onclick="redraw();">Redraw</button>
+<button type="button" onclick="ctrlAltDel();">Ctrl+Alt+Del</button>
+
 <div id="vnccontainer">
   <img id="vncviewer" src="vncimg.php" />
 </div>
 
 <script type="text/javascript">
+  // console.log and IE
+  var alertFallback = false;
+   if (typeof console === "undefined" || typeof console.log === "undefined") {
+	 console = {};
+	 if (alertFallback) {
+		 console.log = function(msg) {
+			  alert(msg);
+		 };
+	 } else {
+		 console.log = function() {};
+	 }
+   }
 
   // "asdf".getBytes();
   String.prototype.getBytes = function () {
@@ -132,7 +145,7 @@ $sesid = $_COOKIE['PHPSESSID'];
   setInterval(function(){
 	// send mouse coordinates to RFB every 1 sec if the mouse got moved
 	if (mouseMoved == true) {
-	  sendMouseEvent(mouseX, mouseY, mouseLeft, mouseRight, mouseMiddle, mouseScrollUp, mouseScrollDown);
+	  sendMouseEvent(mouseX, mouseY, mouseLeft, mouseMiddle, mouseRight, mouseScrollUp, mouseScrollDown);
 	  mouseMoved = false;
 	}
   }, 1000);
@@ -155,7 +168,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 	} else if (e.which == 3) {
 	  mouseRight = 1;
 	}
-	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseRight, mouseMiddle, mouseScrollUp, mouseScrollDown);
+	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseMiddle, mouseRight, mouseScrollUp, mouseScrollDown);
   });
 
   $('#vncviewer').mouseup(function(e) {
@@ -167,7 +180,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 	} else if (e.which == 3) {
 	  mouseRight = 0;
 	}
-	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseRight, mouseMiddle, mouseScrollUp, mouseScrollDown);
+	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseMiddle, mouseRight, mouseScrollUp, mouseScrollDown);
 	event.preventDefault();
   });
   
@@ -196,23 +209,68 @@ $sesid = $_COOKIE['PHPSESSID'];
 		retcode = false;
 	  }
 	  	  
-	  if (keyCode == 16) {
-		// left shift
+	  if (keyCode == 16) { // left shift
 		spKey = 0xff;
 		keyCode = 0xe1;
 		retcode = false;
 	  }
 	  
-	  if (keyCode == 17) {
-		//control
+	  if (keyCode == 17) { //control
 		spKey = 0xff;
 		keyCode = 0xe3;
+		retcode = false;
+	  }
+
+	  if (keyCode == 17) { // left alt
+		spKey = 0xff;
+		keyCode = 0xe9;
+		retcode = false;
+	  }
+
+	  if (keyCode == 37) { // left
+		spKey = 0xff;
+		keyCode = 0x51;
+		retcode = false;
+	  }
+
+	  if (keyCode == 38) { // up
+		spKey = 0xff;
+		keyCode = 0x52;
+		retcode = false;
+	  }
+
+	  if (keyCode == 39) { // right
+		spKey = 0xff;
+		keyCode = 0x53;
+		retcode = false;
+	  }
+
+	  if (keyCode == 40) { // down
+		spKey = 0xff;
+		keyCode = 0x54;
+		retcode = false;
+	  }
+
+	  if (keyCode == 27) { // esc
+		spKey = 0xff;
+		keyCode = 0x1b;
+		retcode = false;
+	  }
+
+	  if (keyCode >= 112 && keyCode <= 123) { // F1-F12
+		var fBase = 0xbe-1;
+		var cBase = 112-1;
+		var fCode = cBase - keyCode;
+		fCode = fCode * -1;
+		console.log('fCode: F' + fCode);
+		spKey = 0xff;
+		keyCode = fBase + fCode;
 		retcode = false;
 	  }
 	  
 	  var bytes;
 	  bytes = [0x04, upDown, 0x00, 0x00, 0x00, 0x00, spKey, keyCode];
-	  $.post("vncevent.php", JSON.stringify({ shid: '<?=$_SESSION['shid']?>', op: 'rawmsg', rawdata: bytes }));
+	  $.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
 	  return(retcode);
 	}
 	
@@ -224,10 +282,14 @@ $sesid = $_COOKIE['PHPSESSID'];
 	  return(keyPress(e, 0));
 	});
 	
-	
-	function redraw() {
-	  var bytes = [0x03, 0x00, 0x00, 0x00, 0x00, 0x00];
-	  $.post("vncevent.php", JSON.stringify({ shid: '<?=$_SESSION['shid']?>', op: 'rawmsg', rawdata: bytes }));
+  	function ctrlAltDel() {
+	  var bytes = [0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3,	// ctrl alt del sequence
+				   0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe9,
+				   0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
+				   0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
+				   0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe9,
+				   0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3];
+	  $.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
 	}
 	
 </script>

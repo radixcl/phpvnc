@@ -2,6 +2,7 @@
 require('./phpvnc.php');
 declare(ticks = 1);
 ignore_user_abort(false);
+ob_implicit_flush(true);
 
 pcntl_signal(SIGTERM, "sig_handler");
 function sig_handler($signo) {

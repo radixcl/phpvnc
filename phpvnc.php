@@ -6,7 +6,7 @@ define('_DEBUG', true);
 
 function debug($str) {
 	if (_DEBUG == true)
-		error_log($str);
+		error_log(sprintf('[%d]: %s', getmypid(), $str));
 }
 
 function debug_dump($data) {
@@ -284,7 +284,8 @@ class vncClient {
 		else
 			$img = $oldimg;
 		
-		debug(__FUNCTION__ . '(); total rectangles: ' . $data['count']);
+		if (intval($data['count']) > 0)
+			debug(__FUNCTION__ . '(); total rectangles: ' . $data['count']);
 		for ($rects=0; $rects < $data['count']; $rects++) {
 			//Obtener la informaci—n rect‡ngulo
 			$r = $this->dread($this->fp, 12);
@@ -370,9 +371,6 @@ class vncClient {
 	public function streamImage($format, $shid) {
 		global $config;
 
-		ob_implicit_flush(true);
-		ob_end_flush();
-
 		//setup shared memory segment
 		$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
 		debug("SHM: " . $config->shm->key . " " . $config->shm->size . " " . $config->shm->permissions);
@@ -391,6 +389,10 @@ class vncClient {
 		echo "--phpvncbound\n";
 		echo "Content-type: image/$format\n\n";
 		for(;;) {
+			@ob_end_flush();
+			@flush();
+			@ob_end_clean();
+			//debug(sprintf('%s(); connection status: %d', __FUNCTION__, connection_status()));
 			$img = $this->getRectangle(1, $img);
 			if ($img === false) {
 				debug("stream terminated");
