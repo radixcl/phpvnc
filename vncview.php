@@ -12,6 +12,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
 
 <button type="button" onclick="ctrlAltDel();">Ctrl+Alt+Del</button>
+shid: <?=$_SESSION['shid']?>
 
 <div id="vnccontainer">
   <img id="vncviewer" src="vncimg.php" />
@@ -139,7 +140,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 	bytes.push(parseInt(Y[1]));
 	//console.log(bytes);
 	
-	$.post("vncevent.php", JSON.stringify({ shid: '<?=$_SESSION['shid']?>', op: 'rawmsg', rawdata: bytes }));
+	$.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
   }
 
   setInterval(function(){
@@ -191,7 +192,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 	mouseY = (e.clientY - offset.top);
   });
   
-  // keyboard map
+  // Spanish keyboard map
   var keyMap = new Array();
   keyMap[8] = [0xff, 8];		// backspace
   keyMap[13] = [0xff, 13];		// enter

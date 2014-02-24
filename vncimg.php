@@ -27,6 +27,6 @@ function _cleanup() {
 	global $config;
 	$host = $_SESSION['host'];
 	debug("mjpeg stream to $host terminated, cleaning up.");
-	$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
-	shm_remove($segment);
+	//$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
+	//shm_remove($segment);
 }

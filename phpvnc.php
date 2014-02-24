@@ -373,7 +373,7 @@ class vncClient {
 
 		//setup shared memory segment
 		$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
-		debug("SHM: " . $config->shm->key . " " . $config->shm->size . " " . $config->shm->permissions);
+		debug("Shared memory setup: " . $config->shm->key . " " . $config->shm->size . " " . $config->shm->permissions);
 		debug("Starting mjpeg stream to " . $this->host);
 
 		set_time_limit(0);
@@ -406,7 +406,7 @@ class vncClient {
 			// read data from shared memory and send it to RFB
 			$shm_data = @shm_get_var($segment, $_SESSION['shid']);
 			if (trim($shm_data) != '') {
-				debug("shm got: " . $this->hex_dump($shm_data, "\n", 1));
+				debug("shm $_SESSION[shid] got: " . $this->hex_dump($shm_data, "\n", 1));
 				$this->dwrite($this->fp, $shm_data);
 				shm_put_var($segment, $_SESSION['shid'], '');
 			}
