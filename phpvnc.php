@@ -2,7 +2,6 @@
 
 require_once('./config.php');
 
-define('_DEBUG', true);
 
 function debug($str) {
 	if (_DEBUG == true)
@@ -172,17 +171,17 @@ class vncClient {
 		// ServerInitialistion
 		// initial config for client
 		$this->dwrite($this->fp, "\01");
-		
-		$data = $this->dread($this->fp, 24);
-		$this->sdata = unpack('n2size/C4flag/n3max/C3shift/x3skip/Nslen', $data);
-		//print_r($sdata);
+				
+		$data .= $this->dread($this->fp, 24);
+		$this->sdata = @unpack('n2size/C4flag/n3max/C3shift/x3skip/Nslen', $data);
 		
 		// RAW mode
 		$REQ = pack('C2n1N2', 2, 0, 2, 0, 0);
 		$this->dwrite($this->fp, $REQ);
 		
 		// get host name
-		$hostname = $this->dread($this->fp, $this->sdata['slen']);
+		if (isset($this->sdata['slen']))
+			$hostname = $this->dread($this->fp, $this->sdata['slen']);
 		
 		$toReturn = new stdClass();
 		$toReturn->hostname = $hostname;
