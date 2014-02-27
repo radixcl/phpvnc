@@ -217,10 +217,14 @@ shid: <?=$_SESSION['shid']?>
 		retcode = false;
 	  } 	  
 	  
+	  sendKeyEvent(upDown, spKey, keyCode);
+	  return(retcode);
+	}
+	
+	function sendKeyEvent(upDown, spKey, keyCode) {
 	  var bytes;
 	  bytes = [0x04, upDown, 0x00, 0x00, 0x00, 0x00, spKey, keyCode];
-	  $.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
-	  return(retcode);
+	  $.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));	  
 	}
 	
 	$(document).keydown(function(e){
