@@ -276,7 +276,9 @@ class vncClient {
 		}
 
 		
-		$data = unpack('Cflag/x/ncount', $r);
+		$data = @unpack('Cflag/x/ncount', $r);
+		if ($data === false)
+			return($oldimg);
 			
 		if ($oldimg == NULL)
 			$img = imagecreatetruecolor($width, $height);

@@ -186,64 +186,77 @@ shid: <?=$_SESSION['shid']?>
 	event.preventDefault();
   });
   
+
   $('#vncviewer').mousemove(function(e) {
 	var offset = $(this).offset();
 	mouseMoved = true;
 	mouseX = (e.clientX - offset.left);
 	mouseY = (e.clientY - offset.top);
   });
-    
-	function keyPress(e, upDown) {
-	  var keyCode = e.keyCode;
-	  var spKey = 0;
-	  var retcode = true;
-	  
-	  console.log('keyPress(' + upDown + '); keycode ' + keyCode + ' ('  + hex8(keyCode) + ') ' + e.charCode);
-	  
-	  if (keyCode >= 112 && keyCode <= 123) { // F1-F12
-		var fBase = 0xbe-1;
-		var cBase = 112-1;
-		var fCode = cBase - keyCode;
-		fCode = fCode * -1;
-		console.log('fCode: F' + fCode);
-		spKey = 0xff;
-		keyCode = fBase + fCode;
-		retcode = false;
-	  }
-	  // process keymap
-	  else if (typeof(keyMap[keyCode]) != 'undefined') {
-		spKey = keyMap[keyCode][0];
-		keyCode = keyMap[keyCode][1];
-		retcode = false;
-	  } 	  
-	  
-	  sendKeyEvent(upDown, spKey, keyCode);
-	  return(retcode);
-	}
-	
-	function sendKeyEvent(upDown, spKey, keyCode) {
-	  var bytes;
-	  bytes = [0x04, upDown, 0x00, 0x00, 0x00, 0x00, spKey, keyCode];
-	  $.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));	  
-	}
-	
-	$(document).keydown(function(e){
-	  return(keyPress(e, 1));
-	});
 
-	$(document).keyup(function(e){
-	  return(keyPress(e, 0));
-	});
+
+  function keyPress(e, upDown) {
+	var keyCode = e.keyCode;
+	var spKey = 0;
+	var retcode = true;
+	var char;
 	
-  	function ctrlAltDel() {
-	  var bytes = [0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3,	// ctrl alt del sequence
-				   0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe9,
-				   0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
-				   0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
-				   0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe9,
-				   0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3];
-	  $.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
+	//console.log(e);
+	if($.inArray(e.keyCode,[8, 9, 13,16,17,18,19,20,27,35,36,37,38,39,40,91,93,224]) == -1) {
+	  return true;
 	}
+	console.log('keyPress(' + upDown + '); keycode ' + keyCode + ' ('  + hex8(keyCode) + ') ' + e.charCode);
+	
+	if (keyCode >= 112 && keyCode <= 123) { // F1-F12
+	  var fBase = 0xbe-1;
+	  var cBase = 112-1;
+	  var fCode = cBase - keyCode;
+	  fCode = fCode * -1;
+	  console.log('fCode: F' + fCode);
+	  spKey = 0xff;
+	  keyCode = fBase + fCode;
+	  retcode = false;
+	}
+	// process keymap
+	else if (typeof(keyMap[keyCode]) != 'undefined') {
+	  spKey = keyMap[keyCode][0];
+	  keyCode = keyMap[keyCode][1];
+	  retcode = false;
+	}
+	sendKeyEvent(upDown, spKey, keyCode);
+	return retcode;
+  }
+	  
+  function sendKeyEvent(upDown, spKey, keyCode) {
+	var bytes;
+	bytes = [0x04, upDown, 0x00, 0x00, 0x00, 0x00, spKey, keyCode];
+	$.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));	  
+  }
+  
+  $(document).keydown(function(e){
+	return(keyPress(e, 1));
+  });
+
+  $(document).keyup(function(e){
+	return(keyPress(e, 0));
+  });
+
+  $(document).keypress(function(e){
+	console.log("keypress: " + e.charCode);
+	var char = e.charCode;
+	sendKeyEvent(1, 0, char);
+	e.preventDefault();
+  });
+    
+  function ctrlAltDel() {
+	var bytes = [0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3,	// ctrl alt del sequence
+				 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe9,
+				 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
+				 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
+				 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe9,
+				 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3];
+	$.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
+  }
 	
 </script>
 
