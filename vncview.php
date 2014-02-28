@@ -200,8 +200,9 @@ $sesid = $_COOKIE['PHPSESSID'];
 	var retcode = true;
 	var char;
 	
-	console.log(e);
+	//console.log(e);
 	if($.inArray(e.keyCode,[8, 9, 13,16,17,18,19,20,27,35,36,37,38,39,40,91,93,224]) == -1 && e.ctrlKey == false && e.altKey == false) {
+	  console.log('not a special key');
 	  return true;
 	}
 	console.log('keyPress(' + upDown + '); keycode ' + keyCode + ' ('  + hex8(keyCode) + ') ' + e.charCode);
