@@ -15,7 +15,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 <button type="button" onclick="ctrlAltDel();">Ctrl+Alt+Del</button>
 
 <div id="vnccontainer">
-  <img id="vncviewer" src="vncimg.php" />
+  <img id="vncviewer" src="blank.jpg" />
 </div>
 
 <script type="text/javascript">
@@ -250,6 +250,10 @@ $sesid = $_COOKIE['PHPSESSID'];
 	sendKeyEvent(1, 0, char);
 	e.preventDefault();
   });
+  
+  $('vncviewer').ready(function(){
+	console.log("vncviewer onload.");
+  });
     
   function ctrlAltDel() {
 	var bytes = [0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3,	// ctrl alt del sequence
@@ -260,7 +264,17 @@ $sesid = $_COOKIE['PHPSESSID'];
 				 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3];
 	$.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
   }
-	
+  
+  var es;
+  console.log("READY!!!");
+  es = new EventSource('jsonstream.php');
+  
+  es.addEventListener("frame", function(e) {
+	//console.log("got frame!");
+	var obj = JSON.parse(e.data);
+	$('#vncviewer').attr('src', 'data:image/jpeg;base64,' + obj.image);
+  });
+  
 </script>
 
 </html>
