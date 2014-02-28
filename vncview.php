@@ -188,9 +188,12 @@ $sesid = $_COOKIE['PHPSESSID'];
 
   $('#vncviewer').mousemove(function(e) {
 	var offset = $(this).offset();
+	var scrollLeft = $(document).scrollLeft();
+	var scrollTop = $(document).scrollTop();
+	
 	mouseMoved = true;
-	mouseX = (e.clientX - offset.left);
-	mouseY = (e.clientY - offset.top);
+	mouseX = (e.clientX - offset.left + scrollLeft);
+	mouseY = (e.clientY - offset.top + scrollTop);
   });
 
 
