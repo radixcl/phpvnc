@@ -13,7 +13,6 @@ $sesid = $_COOKIE['PHPSESSID'];
 <script src="js/keymap/kbmap.js"></script>
 
 <button type="button" onclick="ctrlAltDel();">Ctrl+Alt+Del</button>
-shid: <?=$_SESSION['shid']?>
 
 <div id="vnccontainer">
   <img id="vncviewer" src="vncimg.php" />
@@ -201,8 +200,8 @@ shid: <?=$_SESSION['shid']?>
 	var retcode = true;
 	var char;
 	
-	//console.log(e);
-	if($.inArray(e.keyCode,[8, 9, 13,16,17,18,19,20,27,35,36,37,38,39,40,91,93,224]) == -1) {
+	console.log(e);
+	if($.inArray(e.keyCode,[8, 9, 13,16,17,18,19,20,27,35,36,37,38,39,40,91,93,224]) == -1 && e.ctrlKey == false && e.altKey == false) {
 	  return true;
 	}
 	console.log('keyPress(' + upDown + '); keycode ' + keyCode + ' ('  + hex8(keyCode) + ') ' + e.charCode);

@@ -128,7 +128,7 @@ class vncClient {
 		$this->port = $port;
 		$this->passwd = $passwd;
 
-		$this->fp = fsockopen($this->host, $this->port, $this->errno, $this->errstr, 30);
+		$this->fp = @fsockopen($this->host, $this->port, $this->errno, $this->errstr, 30);
 		
 		if (!$this->fp) {
 			return false;
@@ -136,6 +136,10 @@ class vncClient {
 
 		// init and version
 		$data = $this->dread($this->fp, 12);
+		if ($data === false) {
+			$this->data = 'Unable to read initial handshake';
+			return false;
+		}
 		
 		$version = substr($data, 4, 7);
 		$this->dwrite($this->fp, "RFB 003.003\n");
@@ -150,6 +154,10 @@ class vncClient {
 		
 		// get auth challenge
 		$data = $this->dread($this->fp, 16);
+		if ($data === false) {
+			$this->data = 'Unable to read auth challenge';
+			return false;
+		}
 		// send auth pass
 		$iv = mcrypt_create_iv(mcrypt_get_iv_size (MCRYPT_DES, MCRYPT_MODE_ECB), MCRYPT_RAND);
 		//echo "CHALLENGE!!\n";
@@ -159,6 +167,7 @@ class vncClient {
 		// auth result
 		$data = $this->dread($this->fp, 4);
 		if ($data != "\00\00\00\00") {
+			debug_dump($data);
 			$this->errstr = 'RFB auth error';
 			return false;
 		}
@@ -173,7 +182,9 @@ class vncClient {
 		$this->dwrite($this->fp, "\01");
 				
 		$data .= $this->dread($this->fp, 24);
-		$this->sdata = @unpack('n2size/C4flag/n3max/C3shift/x3skip/Nslen', $data);
+		if (!$this->sdata = @unpack('n2size/C4flag/n3max/C3shift/x3skip/Nslen', $data)) {
+			return false;
+		}
 		
 		// RAW mode
 		$REQ = pack('C2n1N2', 2, 0, 2, 0, 0);
@@ -183,11 +194,9 @@ class vncClient {
 		if (isset($this->sdata['slen']))
 			$hostname = $this->dread($this->fp, $this->sdata['slen']);
 		
-		$toReturn = new stdClass();
-		$toReturn->hostname = $hostname;
-		$toReturn->sdata = $this->sdata;
+		$this->hostname = $hostname;
 		debug(__FUNCTION__ . '(); ' . print_r($this->sdata, 1));
-		return($toReturn);
+		return(true);
 	}
 	
 	public function getRectangle($incremental=0, $oldimg=NULL) {
