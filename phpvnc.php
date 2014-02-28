@@ -2,11 +2,10 @@
 
 require_once('./config.php');
 
-define('_DEBUG', true);
 
 function debug($str) {
 	if (_DEBUG == true)
-		error_log($str);
+		error_log(sprintf('[%d]: %s', getmypid(), $str));
 }
 
 function debug_dump($data) {
@@ -129,7 +128,7 @@ class vncClient {
 		$this->port = $port;
 		$this->passwd = $passwd;
 
-		$this->fp = fsockopen($this->host, $this->port, $this->errno, $this->errstr, 30);
+		$this->fp = @fsockopen($this->host, $this->port, $this->errno, $this->errstr, 30);
 		
 		if (!$this->fp) {
 			return false;
@@ -137,6 +136,10 @@ class vncClient {
 
 		// init and version
 		$data = $this->dread($this->fp, 12);
+		if ($data === false) {
+			$this->data = 'Unable to read initial handshake';
+			return false;
+		}
 		
 		$version = substr($data, 4, 7);
 		$this->dwrite($this->fp, "RFB 003.003\n");
@@ -151,6 +154,10 @@ class vncClient {
 		
 		// get auth challenge
 		$data = $this->dread($this->fp, 16);
+		if ($data === false) {
+			$this->data = 'Unable to read auth challenge';
+			return false;
+		}
 		// send auth pass
 		$iv = mcrypt_create_iv(mcrypt_get_iv_size (MCRYPT_DES, MCRYPT_MODE_ECB), MCRYPT_RAND);
 		//echo "CHALLENGE!!\n";
@@ -160,6 +167,7 @@ class vncClient {
 		// auth result
 		$data = $this->dread($this->fp, 4);
 		if ($data != "\00\00\00\00") {
+			debug_dump($data);
 			$this->errstr = 'RFB auth error';
 			return false;
 		}
@@ -172,23 +180,23 @@ class vncClient {
 		// ServerInitialistion
 		// initial config for client
 		$this->dwrite($this->fp, "\01");
-		
-		$data = $this->dread($this->fp, 24);
-		$this->sdata = unpack('n2size/C4flag/n3max/C3shift/x3skip/Nslen', $data);
-		//print_r($sdata);
+				
+		$data .= $this->dread($this->fp, 24);
+		if (!$this->sdata = @unpack('n2size/C4flag/n3max/C3shift/x3skip/Nslen', $data)) {
+			return false;
+		}
 		
 		// RAW mode
 		$REQ = pack('C2n1N2', 2, 0, 2, 0, 0);
 		$this->dwrite($this->fp, $REQ);
 		
 		// get host name
-		$hostname = $this->dread($this->fp, $this->sdata['slen']);
+		if (isset($this->sdata['slen']))
+			$hostname = $this->dread($this->fp, $this->sdata['slen']);
 		
-		$toReturn = new stdClass();
-		$toReturn->hostname = $hostname;
-		$toReturn->sdata = $this->sdata;
+		$this->hostname = $hostname;
 		debug(__FUNCTION__ . '(); ' . print_r($this->sdata, 1));
-		return($toReturn);
+		return(true);
 	}
 	
 	public function getRectangle($incremental=0, $oldimg=NULL) {
@@ -277,14 +285,17 @@ class vncClient {
 		}
 
 		
-		$data = unpack('Cflag/x/ncount', $r);
+		$data = @unpack('Cflag/x/ncount', $r);
+		if ($data === false)
+			return($oldimg);
 			
 		if ($oldimg == NULL)
 			$img = imagecreatetruecolor($width, $height);
 		else
 			$img = $oldimg;
 		
-		debug(__FUNCTION__ . '(); total rectangles: ' . $data['count']);
+		if (intval($data['count']) > 0)
+			debug(__FUNCTION__ . '(); total rectangles: ' . $data['count']);
 		for ($rects=0; $rects < $data['count']; $rects++) {
 			//Obtener la informaci—n rect‡ngulo
 			$r = $this->dread($this->fp, 12);
@@ -370,12 +381,9 @@ class vncClient {
 	public function streamImage($format, $shid) {
 		global $config;
 
-		ob_implicit_flush(true);
-		ob_end_flush();
-
 		//setup shared memory segment
 		$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
-		debug("SHM: " . $config->shm->key . " " . $config->shm->size . " " . $config->shm->permissions);
+		debug("Shared memory setup: " . $config->shm->key . " " . $config->shm->size . " " . $config->shm->permissions);
 		debug("Starting mjpeg stream to " . $this->host);
 
 		set_time_limit(0);
@@ -391,6 +399,10 @@ class vncClient {
 		echo "--phpvncbound\n";
 		echo "Content-type: image/$format\n\n";
 		for(;;) {
+			@ob_end_flush();
+			@flush();
+			@ob_end_clean();
+			//debug(sprintf('%s(); connection status: %d', __FUNCTION__, connection_status()));
 			$img = $this->getRectangle(1, $img);
 			if ($img === false) {
 				debug("stream terminated");
@@ -404,7 +416,7 @@ class vncClient {
 			// read data from shared memory and send it to RFB
 			$shm_data = @shm_get_var($segment, $_SESSION['shid']);
 			if (trim($shm_data) != '') {
-				debug("shm got: " . $this->hex_dump($shm_data, "\n", 1));
+				debug("shm $_SESSION[shid] got: " . $this->hex_dump($shm_data, "\n", 1));
 				$this->dwrite($this->fp, $shm_data);
 				shm_put_var($segment, $_SESSION['shid'], '');
 			}

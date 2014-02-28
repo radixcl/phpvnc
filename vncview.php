@@ -10,13 +10,27 @@ $sesid = $_COOKIE['PHPSESSID'];
 ?>
 <html>
 <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
+<script src="js/keymap/kbmap.js"></script>
 
-<button type="button" onclick="redraw();">Redraw</button>
+<button type="button" onclick="ctrlAltDel();">Ctrl+Alt+Del</button>
+
 <div id="vnccontainer">
   <img id="vncviewer" src="vncimg.php" />
 </div>
 
 <script type="text/javascript">
+  // console.log and IE
+  var alertFallback = false;
+   if (typeof console === "undefined" || typeof console.log === "undefined") {
+	 console = {};
+	 if (alertFallback) {
+		 console.log = function(msg) {
+			  alert(msg);
+		 };
+	 } else {
+		 console.log = function() {};
+	 }
+   }
 
   // "asdf".getBytes();
   String.prototype.getBytes = function () {
@@ -126,13 +140,13 @@ $sesid = $_COOKIE['PHPSESSID'];
 	bytes.push(parseInt(Y[1]));
 	//console.log(bytes);
 	
-	$.post("vncevent.php", JSON.stringify({ shid: '<?=$_SESSION['shid']?>', op: 'rawmsg', rawdata: bytes }));
+	$.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
   }
 
   setInterval(function(){
 	// send mouse coordinates to RFB every 1 sec if the mouse got moved
 	if (mouseMoved == true) {
-	  sendMouseEvent(mouseX, mouseY, mouseLeft, mouseRight, mouseMiddle, mouseScrollUp, mouseScrollDown);
+	  sendMouseEvent(mouseX, mouseY, mouseLeft, mouseMiddle, mouseRight, mouseScrollUp, mouseScrollDown);
 	  mouseMoved = false;
 	}
   }, 1000);
@@ -155,7 +169,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 	} else if (e.which == 3) {
 	  mouseRight = 1;
 	}
-	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseRight, mouseMiddle, mouseScrollUp, mouseScrollDown);
+	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseMiddle, mouseRight, mouseScrollUp, mouseScrollDown);
   });
 
   $('#vncviewer').mouseup(function(e) {
@@ -167,68 +181,85 @@ $sesid = $_COOKIE['PHPSESSID'];
 	} else if (e.which == 3) {
 	  mouseRight = 0;
 	}
-	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseRight, mouseMiddle, mouseScrollUp, mouseScrollDown);
+	sendMouseEvent(mouseX, mouseY, mouseLeft, mouseMiddle, mouseRight, mouseScrollUp, mouseScrollDown);
 	event.preventDefault();
   });
   
+
   $('#vncviewer').mousemove(function(e) {
 	var offset = $(this).offset();
+	var scrollLeft = $(document).scrollLeft();
+	var scrollTop = $(document).scrollTop();
+	
 	mouseMoved = true;
-	mouseX = (e.clientX - offset.left);
-	mouseY = (e.clientY - offset.top);
+	mouseX = (e.clientX - offset.left + scrollLeft);
+	mouseY = (e.clientY - offset.top + scrollTop);
   });
 
-	function keyPress(e, upDown) {
-	  var keyCode = e.keyCode;
-	  var spKey = 0;
-	  var retcode = true;
-	  
-	  console.log('keyPress(' + upDown + '); keycode ' + keyCode);
-	  
-	  // specials
-	  if (keyCode == 8) { // backspace
-		spKey = 0xff;
-		retcode = false;
-	  }
-	  
-	  if (keyCode == 13) { // enter
-		spKey = 0xff;
-		retcode = false;
-	  }
-	  	  
-	  if (keyCode == 16) {
-		// left shift
-		spKey = 0xff;
-		keyCode = 0xe1;
-		retcode = false;
-	  }
-	  
-	  if (keyCode == 17) {
-		//control
-		spKey = 0xff;
-		keyCode = 0xe3;
-		retcode = false;
-	  }
-	  
-	  var bytes;
-	  bytes = [0x04, upDown, 0x00, 0x00, 0x00, 0x00, spKey, keyCode];
-	  $.post("vncevent.php", JSON.stringify({ shid: '<?=$_SESSION['shid']?>', op: 'rawmsg', rawdata: bytes }));
-	  return(retcode);
-	}
-	
-	$(document).keydown(function(e){
-	  return(keyPress(e, 1));
-	});
 
-	$(document).keyup(function(e){
-	  return(keyPress(e, 0));
-	});
+  function keyPress(e, upDown) {
+	var keyCode = e.keyCode;
+	var spKey = 0;
+	var retcode = true;
+	var char;
 	
-	
-	function redraw() {
-	  var bytes = [0x03, 0x00, 0x00, 0x00, 0x00, 0x00];
-	  $.post("vncevent.php", JSON.stringify({ shid: '<?=$_SESSION['shid']?>', op: 'rawmsg', rawdata: bytes }));
+	//console.log(e);
+	if($.inArray(e.keyCode,[8, 9, 13,16,17,18,19,20,27,35,36,37,38,39,40,91,93,224]) == -1 && e.ctrlKey == false && e.altKey == false) {
+	  console.log('not a special key');
+	  return true;
 	}
+	console.log('keyPress(' + upDown + '); keycode ' + keyCode + ' ('  + hex8(keyCode) + ') ' + e.charCode);
+	
+	if (keyCode >= 112 && keyCode <= 123) { // F1-F12
+	  var fBase = 0xbe-1;
+	  var cBase = 112-1;
+	  var fCode = cBase - keyCode;
+	  fCode = fCode * -1;
+	  console.log('fCode: F' + fCode);
+	  spKey = 0xff;
+	  keyCode = fBase + fCode;
+	  retcode = false;
+	}
+	// process keymap
+	else if (typeof(keyMap[keyCode]) != 'undefined') {
+	  spKey = keyMap[keyCode][0];
+	  keyCode = keyMap[keyCode][1];
+	  retcode = false;
+	}
+	sendKeyEvent(upDown, spKey, keyCode);
+	return retcode;
+  }
+	  
+  function sendKeyEvent(upDown, spKey, keyCode) {
+	var bytes;
+	bytes = [0x04, upDown, 0x00, 0x00, 0x00, 0x00, spKey, keyCode];
+	$.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));	  
+  }
+  
+  $(document).keydown(function(e){
+	return(keyPress(e, 1));
+  });
+
+  $(document).keyup(function(e){
+	return(keyPress(e, 0));
+  });
+
+  $(document).keypress(function(e){
+	console.log("keypress: " + e.charCode);
+	var char = e.charCode;
+	sendKeyEvent(1, 0, char);
+	e.preventDefault();
+  });
+    
+  function ctrlAltDel() {
+	var bytes = [0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3,	// ctrl alt del sequence
+				 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe9,
+				 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
+				 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
+				 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe9,
+				 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3];
+	$.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
+  }
 	
 </script>
 
