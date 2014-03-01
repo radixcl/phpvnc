@@ -422,6 +422,8 @@ class vncClient {
 				$buf = ob_get_clean();
 				$imgObj->image = base64_encode($buf);
 				$imgObj->error = 0;
+				$imgObj->width = $this->sdata['size1'];
+				$imgObj->height = $this->sdata['size2'];
 				
 				echo "event: frame\n";
 				echo "data: ";

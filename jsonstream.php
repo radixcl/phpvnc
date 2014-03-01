@@ -32,15 +32,16 @@ $client = new vncClient();
 $auth = $client->auth($host, $port, $passwd);
 
 if ($auth === false) {
-	$img = errorImage(640, 480, "\n ERROR:\n Could not connect to remote RFB.\n\n " . $client->errstr);
-	header('Content-type: image/jpeg');
-	$imgObj->error = 1;
+	ob_start();
+	imagejpeg($img);
+	$buf = ob_get_clean();
+	header("Content-Type: text/event-stream\n\n");
+	$imgObj->error = "errauth";
 	$imgObj->errstr = $client->errstr;
 	$imgObj->errno = $client->errno;
 	
-	echo "event: frame\n";
-	echo "data: ";
-	echo json_encode($imgObj);
+	echo "event: error\n";
+	echo "data: " . json_encode($imgObj);
 	echo "\n\n";
 	
 	die();

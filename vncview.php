@@ -15,7 +15,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 <button type="button" onclick="ctrlAltDel();">Ctrl+Alt+Del</button>
 
 <div id="vnccontainer">
-  <img id="vncviewer" src="blank.jpg" />
+  <canvas id="vncviewer" width="1" height="1" style="border: 1px solid;"></canvas>
 </div>
 
 <script type="text/javascript">
@@ -116,6 +116,8 @@ $sesid = $_COOKIE['PHPSESSID'];
   var mouseMiddle = 0;
   var mouseScrollUp = 0;
   var mouseScrollDown = 0;
+  var image = new Image();
+  var connected = 1;
   
   var shid = '<?=$_SESSION['shid']?>';
   
@@ -266,14 +268,36 @@ $sesid = $_COOKIE['PHPSESSID'];
   }
   
   var es;
-  console.log("READY!!!");
-  es = new EventSource('jsonstream.php');
-  
+  es = new EventSource('jsonstream.php');  
   es.addEventListener("frame", function(e) {
+	var canvas = $('#vncviewer');
+	var ctx = canvas[0].getContext("2d");
 	//console.log("got frame!");
 	var obj = JSON.parse(e.data);
-	$('#vncviewer').attr('src', 'data:image/jpeg;base64,' + obj.image);
+	//$('#vncviewer').attr('src', 'data:image/jpeg;base64,' + obj.image);
+	if (obj.width != canvas.width()) {
+	  //canvas.width(obj.width);
+	  canvas[0].width = obj.width;
+	}
+	if (obj.height != canvas.height()) {
+	  //canvas.height(obj.height);
+	  canvas[0].height = obj.height;
+	}
+	image.src = "data:image/jpeg;base64," + obj.image;
+	image.onload = function() {
+	  ctx.drawImage(image, 0, 0, obj.width, obj.height);
+	};
   });
+
+  es.addEventListener("error", function(e) {
+	var obj = JSON.parse(e.data);
+	alert("Error: " + obj.errstr);
+	if (obj.error == 'errauth') {
+	  es.close();
+	  connected = 0;
+	}
+  });
+
   
 </script>
 
