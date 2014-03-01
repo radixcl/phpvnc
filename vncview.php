@@ -13,6 +13,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 <script src="js/keymap/kbmap.js"></script>
 
 <button type="button" onclick="ctrlAltDel();">Ctrl+Alt+Del</button>
+<button type="button" onclick="reconnect();">Reconnect</button>
 
 <div id="vnccontainer">
   <canvas id="vncviewer" width="1" height="1" style="border: 1px solid;"></canvas>
@@ -118,6 +119,7 @@ $sesid = $_COOKIE['PHPSESSID'];
   var mouseScrollDown = 0;
   var image = new Image();
   var connected = 1;
+  var es;
   
   var shid = '<?=$_SESSION['shid']?>';
   
@@ -252,11 +254,7 @@ $sesid = $_COOKIE['PHPSESSID'];
 	sendKeyEvent(1, 0, char);
 	e.preventDefault();
   });
-  
-  $('vncviewer').ready(function(){
-	console.log("vncviewer onload.");
-  });
-    
+      
   function ctrlAltDel() {
 	var bytes = [0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe3,	// ctrl alt del sequence
 				 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xff, 0xe9,
@@ -267,37 +265,47 @@ $sesid = $_COOKIE['PHPSESSID'];
 	$.post("vncevent.php", JSON.stringify({ shid: shid, op: 'rawmsg', rawdata: bytes }));
   }
   
-  var es;
-  es = new EventSource('jsonstream.php');  
-  es.addEventListener("frame", function(e) {
-	var canvas = $('#vncviewer');
-	var ctx = canvas[0].getContext("2d");
-	//console.log("got frame!");
-	var obj = JSON.parse(e.data);
-	//$('#vncviewer').attr('src', 'data:image/jpeg;base64,' + obj.image);
-	if (obj.width != canvas.width()) {
-	  //canvas.width(obj.width);
-	  canvas[0].width = obj.width;
-	}
-	if (obj.height != canvas.height()) {
-	  //canvas.height(obj.height);
-	  canvas[0].height = obj.height;
-	}
-	image.src = "data:image/jpeg;base64," + obj.image;
-	image.onload = function() {
-	  ctx.drawImage(image, 0, 0, obj.width, obj.height);
-	};
-  });
+  function setupEventSource() {
+	es = new EventSource('jsonstream.php');  
+	es.addEventListener("frame", function(e) {
+	  var canvas = $('#vncviewer');
+	  var ctx = canvas[0].getContext("2d");
+	  //console.log("got frame!");
+	  var obj = JSON.parse(e.data);
+	  //$('#vncviewer').attr('src', 'data:image/jpeg;base64,' + obj.image);
+	  if (obj.width != canvas.width()) {
+		//canvas.width(obj.width);
+		canvas[0].width = obj.width;
+	  }
+	  if (obj.height != canvas.height()) {
+		//canvas.height(obj.height);
+		canvas[0].height = obj.height;
+	  }
+	  image.src = "data:image/jpeg;base64," + obj.image;
+	  image.onload = function() {
+		ctx.drawImage(image, 0, 0, obj.width, obj.height);
+	  };
+	});
+  
+	es.addEventListener("error", function(e) {
+	  var obj = JSON.parse(e.data);
+	  alert("Error: " + obj.errstr);
+	  if (obj.error == 'errauth') {
+		es.close();
+		connected = 0;
+	  }
+	});
+  }
+  
+  function reconnect() {
+	es.close();
+	es = null;
+	setupEventSource();
+  }
 
-  es.addEventListener("error", function(e) {
-	var obj = JSON.parse(e.data);
-	alert("Error: " + obj.errstr);
-	if (obj.error == 'errauth') {
-	  es.close();
-	  connected = 0;
-	}
+  $(document).ready(function(){
+	setupEventSource();
   });
-
   
 </script>
 
