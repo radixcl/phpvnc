@@ -181,7 +181,7 @@ class vncClient {
 		// initial config for client
 		$this->dwrite($this->fp, "\01");
 				
-		$data .= $this->dread($this->fp, 24);
+		$data = $this->dread($this->fp, 24);
 		if (!$this->sdata = @unpack('n2size/C4flag/n3max/C3shift/x3skip/Nslen', $data)) {
 			return false;
 		}
@@ -378,8 +378,9 @@ class vncClient {
 		
 	}
 	
-	public function streamImage($format, $shid) {
+	public function streamImage($format, $shid, $json=false) {
 		global $config;
+		$imgObj = new stdClass();
 
 		//setup shared memory segment
 		$segment = shm_attach($config->shm->key, $config->shm->size, $config->shm->permissions);
@@ -390,14 +391,19 @@ class vncClient {
 		header("Cache-Control: no-cache");
 		header("Cache-Control: private");
 		header("Pragma: no-cache");
-		header('content-type: multipart/x-mixed-replace; boundary=--phpvncbound');
-		echo "Content-type: image/$format\n\n";
+		if ($json == false) {
+			header('content-type: multipart/x-mixed-replace; boundary=--phpvncbound');
+			echo "Content-type: image/$format\n\n";			
+			$img = $this->getRectangle(0, NULL);	// initial screen
+			$this->getImage($format, $img);
+			
+			echo "--phpvncbound\n";
+			echo "Content-type: image/$format\n\n";
+		} else {
+			header("Content-Type: text/event-stream\n\n");
+			$img = $this->getRectangle(0, NULL);	// initial screen
+		}
 		
-		$img = $this->getRectangle(0, NULL);	// initial screen
-		$this->getImage($format, $img);
-		
-		echo "--phpvncbound\n";
-		echo "Content-type: image/$format\n\n";
 		for(;;) {
 			@ob_end_flush();
 			@flush();
@@ -408,10 +414,27 @@ class vncClient {
 				debug("stream terminated");
 				return(false);
 			}
-			$this->getImage($format, $img);
+			if ($json == false) {
+				$this->getImage($format, $img);
+			} else {
+				ob_start();
+				$this->getImage($format, $img);
+				$buf = ob_get_clean();
+				$imgObj->image = base64_encode($buf);
+				$imgObj->error = 0;
+				$imgObj->width = $this->sdata['size1'];
+				$imgObj->height = $this->sdata['size2'];
+				
+				echo "event: frame\n";
+				echo "data: ";
+				echo json_encode($imgObj);
+				echo "\n\n";
+			}
 
-			echo "--phpvncbound\n";
-			echo "Content-type: image/$format\n\n";
+			if ($json == false) {
+				echo "--phpvncbound\n";
+				echo "Content-type: image/$format\n\n";
+			}
 			
 			// read data from shared memory and send it to RFB
 			$shm_data = @shm_get_var($segment, $_SESSION['shid']);
@@ -433,5 +456,13 @@ class vncClient {
 		debug($this->hex_dump($REQ, "\n", true));
 		$this->dwrite($this->fp, $REQ);
 	}
+
+	public function imageToString($img) {
+		ob_start();
+		imagejpeg($img);
+		$imgstr = ob_get_clean();
+		return($imgstr);
+	}
+
 }
 
