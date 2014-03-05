@@ -1,6 +1,7 @@
   // Keyboard map
   var keyMap = new Array();
   keyMap[8] = [0xff, 8];		// backspace
+  keyMap[9] = [0xff, 9];		// tab
   keyMap[13] = [0xff, 13];		// enter
   keyMap[16] = [0xff, 0xe1];	// shift
   keyMap[17] = [0xff, 0xe3];	// control

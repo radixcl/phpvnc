@@ -13,6 +13,47 @@ function debug_dump($data) {
 		error_log(vncClient::hex_dump($data, "\n", true));
 }
 
+class imgLib {
+	public static function rgb2png($width, $height, $data, $gd = false) {
+		// png header
+		$png = pack('C*', 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);   
+		
+		// compose IHDR chunk
+		$IHDR = pack('NN', $width, $height);	// image size
+		$IHDR .= pack('C*', 8, 2, 0, 0, 0);		// 8bpp, truecolor, compression, filter, interlace
+		
+		// write IHDR chunk
+		$png .= pack("N", strlen($IHDR));
+		$png .= "IHDR";
+		$png .= $IHDR;
+		$png .= pack("N", crc32("IHDR".$IHDR));
+		
+		// write data
+		$img = "";
+		for ($i=0;$i<$height;$i++) {
+			// prepending a filter type byte (0) to each scanline
+			$img .= "\0" . substr($data, ($i * $width * 3), ($width * 3));
+		}
+		
+		// compress data
+		$img = gzcompress($img ,0);	// no compression to get better performance
+		$png .= pack("N", strlen($img) );
+		$png .= "IDAT";
+		$png .= $img;
+		$png .= pack("N", crc32("IDAT".$img));
+		
+		// end
+		$png .= pack("N",0 );
+		$png .= "IEND";
+		$png .= pack("N", crc32("IEND"));
+		
+		if ($gd)
+			return(imagecreatefromstring($png));
+		else
+			return($png);
+	}	
+}
+
 class vncClient {
 	private $host;
 	private $port;
@@ -296,6 +337,7 @@ class vncClient {
 		
 		if (intval($data['count']) > 0)
 			debug(__FUNCTION__ . '(); total rectangles: ' . $data['count']);
+
 		for ($rects=0; $rects < $data['count']; $rects++) {
 			//Obtener la informaci—n rect‡ngulo
 			$r = $this->dread($this->fp, 12);
@@ -319,10 +361,12 @@ class vncClient {
 			$divisor = 8;
 			$readmax = $rect['width'] * $BitsPerPixel / $divisor;
 			
+			$time_start = microtime(1);
 			debug(sprintf('%s(); rect %d start drawing', __FUNCTION__, $rects+1));
+			$imgbuf = '';
 			for ($i = 0; $i < $rect['height']; $i++) {
 				$r = $this->fullread($this->fp, $readmax);
-				if ($r === false) return false;	
+				if ($r === false) return false;
 				$rarr = unpack('C*', $r);
 				if (count($rarr) < $readmax) {
 					debug("Raw data is not correct. $i\n");
@@ -333,18 +377,16 @@ class vncClient {
 				for ($j = 0; $j < $rect['width']; $j++) {
 					$offset = $j*4+1;
 					//echo "offset: $offset\n";
-					$roja = $rarr[$offset + $redshift / $divisor];
-					$verde = $rarr[$offset + $greenshift / $divisor];
-					$azul = $rarr[$offset + $blueshift / $divisor];
-					// fuck! this is _really_ slow!!!!
-					$color = imagecolorallocate($img, $roja, $verde, $azul);
-					imagesetpixel($img, $rect['x'] + $j, $rect['y'] + $i, $color);
-					imagecolordeallocate($img, $color);
+					$red = $rarr[$offset + $redshift / $divisor];
+					$green = $rarr[$offset + $greenshift / $divisor];
+					$blue = $rarr[$offset + $blueshift / $divisor];
+					$imgbuf .= pack('ccc', $red, $green, $blue);
 				}
 			}
-			debug(sprintf('%s(); rect %d end drawing', __FUNCTION__, $rects+1));
-
-			
+			$png = imgLib::rgb2png($rect['width'], $rect['height'], $imgbuf, true);
+			imagecopy($img, $png,  $rect['x'],  $rect['y'], 0, 0, $rect['width'], $rect['height']);
+			$time_end = microtime(1);
+			debug(sprintf('%s(); rect %d end drawing (time: %f)', __FUNCTION__, $rects+1, ($time_end - $time_start)));
 		}
 		return($img);	
 	}
