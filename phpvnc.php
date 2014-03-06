@@ -48,7 +48,7 @@ class imgLib {
 		$png .= pack("N", crc32("IEND"));
 		
 		if ($gd)
-			return(imagecreatefromstring($png));
+			return(@imagecreatefromstring($png));
 		else
 			return($png);
 	}	
@@ -241,6 +241,7 @@ class vncClient {
 	}
 	
 	public function getRectangle($incremental=0, $oldimg=NULL) {
+		$time_start = microtime(1);
 		//debug(__FUNCTION__ . '(); start');
 		// server data
 		$width = $this->sdata['size1']; 	// remote screen widht
@@ -255,8 +256,16 @@ class vncClient {
 		$redshift = $this->sdata['shift1'];
 		$greenshift = $this->sdata['shift2'];
 		$blueshift = $this->sdata['shift3'];
-		$SLEN = $this->sdata['slen'];		
-	
+		$SLEN = $this->sdata['slen'];
+		
+		$status = socket_get_status($this->fp);
+		
+		if ($status['eof'] === true) {
+			$this->errstr = 'disconnected';
+			$this->errno = -1;
+			return(false);
+		}
+			
 		// send FramebufferUpdateRequest
 		$REQ = pack('C2n4', 3, $incremental, 0, 0, $width, $height);
 		if ($this->dwrite($this->fp, $REQ) === false) return false;
@@ -267,7 +276,7 @@ class vncClient {
 		else
 			$r = $this->dread_nonblocking($this->fp, 1);
 
-		if ($r === false) return false;	
+		if ($r === false) return false;
 
 		// manage non RFB messages
 		if ($r == "\01") {	// SetColourMapEntries
@@ -321,7 +330,6 @@ class vncClient {
 		
 		if (strlen($r) == 0 && $oldimg != NULL && $incremental == 1) {
 			// no changes on image
-			//debug(__FUNCTION__ . '(); no changes. end');
 			return($oldimg);
 		}
 
@@ -361,7 +369,6 @@ class vncClient {
 			$divisor = 8;
 			$readmax = $rect['width'] * $BitsPerPixel / $divisor;
 			
-			$time_start = microtime(1);
 			debug(sprintf('%s(); rect %d start drawing', __FUNCTION__, $rects+1));
 			$imgbuf = '';
 			for ($i = 0; $i < $rect['height']; $i++) {
@@ -370,7 +377,7 @@ class vncClient {
 				$rarr = unpack('C*', $r);
 				if (count($rarr) < $readmax) {
 					debug("Raw data is not correct. $i\n");
-					break;
+					return false;
 				}
 			 
 				time_nanosleep(0, 1000);
@@ -385,9 +392,10 @@ class vncClient {
 			}
 			$png = imgLib::rgb2png($rect['width'], $rect['height'], $imgbuf, true);
 			imagecopy($img, $png,  $rect['x'],  $rect['y'], 0, 0, $rect['width'], $rect['height']);
-			$time_end = microtime(1);
-			debug(sprintf('%s(); rect %d end drawing (time: %f)', __FUNCTION__, $rects+1, ($time_end - $time_start)));
+			debug(sprintf('%s(); rect %d end drawing', __FUNCTION__, $rects+1));
 		}
+		$time_end = microtime(1);
+		debug(sprintf('%s(); total drawing time: %f', __FUNCTION__, ($time_end - $time_start)));
 		return($img);	
 	}
 
@@ -453,7 +461,14 @@ class vncClient {
 			//debug(sprintf('%s(); connection status: %d', __FUNCTION__, connection_status()));
 			$img = $this->getRectangle(1, $img);
 			if ($img === false) {
-				debug("stream terminated");
+				debug('stream terminated');
+				$imgObj->error = 'disconnected';
+				$imgObj->errstr = $client->errstr;
+				$imgObj->errno = $client->errno;
+				
+				echo "event: error\n";
+				echo "data: " . json_encode($imgObj);
+				echo "\n\n";
 				return(false);
 			}
 			if ($json == false) {

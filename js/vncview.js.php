@@ -279,11 +279,15 @@ function setupEventSource() {
 
   es.addEventListener("error", function(e) {
 	var obj = JSON.parse(e.data);
-	alert("Error: " + obj.errstr);
 	if (obj.error == 'errauth') {
 	  es.close();
 	  connected = 0;
 	}
+	if (obj.error == 'disconnected') {
+	  reconnect();
+	  return;
+	}
+	alert("Error: " + obj.errstr);
   });
 }
 
