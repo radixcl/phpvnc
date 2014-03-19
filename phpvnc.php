@@ -186,34 +186,40 @@ class vncClient {
 		$this->dwrite($this->fp, "RFB 003.003\n");
 		
 		// auth
-		$data = $this->dread($this->fp, 4);
+		$data = $this->dread($this->fp, 4);			// number of security types
 		
-		if ($data !== "\00\00\00\02") {
+		$stype = unpack('x/x/x/Ctypes', $data)['types'];
+		debug('security type: ' . $stype);
+		debug_dump($data);
+		if (intval($stype) > 2 || intval($stype) == 0) {
 			$this->errstr = 'Unknown RFB auth type';
 			return false;
 		}
 		
 		// get auth challenge
-		$data = $this->dread($this->fp, 16);
-		if ($data === false) {
-			$this->data = 'Unable to read auth challenge';
-			return false;
+		if ($stype == '2') {
+			$data = $this->dread($this->fp, 16);
+			if ($data === false) {
+				$this->data = 'Unable to read auth challenge';
+				return false;
+			}
+			debug('Got auth challenge');
+			// send auth pass
+			$iv = mcrypt_create_iv(mcrypt_get_iv_size (MCRYPT_DES, MCRYPT_MODE_ECB), MCRYPT_RAND);
+			//echo "CHALLENGE!!\n";
+			$crypted = mcrypt_encrypt(MCRYPT_DES, $this->mirrorBits($passwd), $data, MCRYPT_MODE_ECB, $iv);
+			$this->dwrite($this->fp, $crypted);
+			
+			// auth result
+			$data = $this->dread($this->fp, 4);
+			if ($data != "\00\00\00\00") {
+				debug_dump($data);
+				$this->errstr = 'RFB auth error';
+				return false;
+			}
+			// auth OK
+			debug("Auth OK");
 		}
-		// send auth pass
-		$iv = mcrypt_create_iv(mcrypt_get_iv_size (MCRYPT_DES, MCRYPT_MODE_ECB), MCRYPT_RAND);
-		//echo "CHALLENGE!!\n";
-		$crypted = mcrypt_encrypt(MCRYPT_DES, $this->mirrorBits($passwd), $data, MCRYPT_MODE_ECB, $iv);
-		$this->dwrite($this->fp, $crypted);
-		
-		// auth result
-		$data = $this->dread($this->fp, 4);
-		if ($data != "\00\00\00\00") {
-			debug_dump($data);
-			$this->errstr = 'RFB auth error';
-			return false;
-		}
-		// auth OK
-		debug("Auth OK");
 		return true;
 	}
 	

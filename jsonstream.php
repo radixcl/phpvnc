@@ -33,7 +33,7 @@ $auth = $client->auth($host, $port, $passwd);
 
 if ($auth === false) {
 	ob_start();
-	imagejpeg($img);
+	@imagejpeg($img);
 	$buf = ob_get_clean();
 	header("Content-Type: text/event-stream\n\n");
 	$imgObj->error = "errauth";
