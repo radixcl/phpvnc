@@ -69,9 +69,10 @@ $host = $_SESSION['host'];
 $port = $_SESSION['port'];
 $passwd = $_SESSION['passwd'];
 $socket = $_SESSION['socket'];
+$tls = $_SESSION['tls'];
 
 $client = new vncClient();
-$auth = $client->auth($host, $port, $passwd);
+$auth = $client->auth($host, $port, $passwd, $tls);
 
 if ($auth === false) {
 	$img = errorImage(640, 480, "\n ERROR:\n Could not connect to remote RFB.\n\n " . $client->errstr);

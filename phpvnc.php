@@ -164,12 +164,13 @@ class vncClient {
 	}
 
 	
-	public function auth($host, $port, $passwd) {
+	public function auth($host, $port, $passwd, $username = '') {
 		$this->host = $host;
 		$this->port = $port;
 		$this->passwd = $passwd;
 
-		$this->fp = @fsockopen($this->host, $this->port, $this->errno, $this->errstr, 30);
+		//$this->fp = stream_socket_client('tcp://' . $this->host . ':' . $this->port, $this->errno, $this->errstr, 30);
+		$this->fp = fsockopen('tcp://' . $this->host, $this->port, $this->errno, $this->errstr, 30);
 		
 		if (!$this->fp) {
 			return false;
@@ -183,43 +184,132 @@ class vncClient {
 		}
 		
 		$version = substr($data, 4, 7);
-		$this->dwrite($this->fp, "RFB 003.003\n");
+		
+		$this->dwrite($this->fp, "RFB 003.008\n");
 		
 		// auth
-		$data = $this->dread($this->fp, 4);			// number of security types
+		$data = $this->dread($this->fp, 4);	// get security types
 		
-		$stype = unpack('x/x/x/Ctypes', $data)['types'];
-		debug('security type: ' . $stype);
+		$stypes = unpack('c*', $data);
+		$stype = $stypes[1];
+		debug('security types: ');
+		debug(print_r($stypes, 1));
 		debug_dump($data);
-		if (intval($stype) > 2 || intval($stype) == 0) {
+		
+		if (in_array('1', $stypes) && $passwd == '') {
+			// stype = 1 (None), no password needed
+			debug("Using security-type 1");
+			$this->dwrite($this->fp, "\01");
+		} else if (in_array('2', $stypes) && $passwd != '') {
+			// stype = 2 (VNC Authentication)
+			debug("Using security-type 2");
+			$this->dwrite($this->fp, "\02");
+			if (!$this->doVNCAuth($passwd)) {
+				$this->errstr = 'RFB auth error';
+				return false;				
+			}			
+		} else if (in_array('19', $stypes) && $passwd != '') {
+			// stype = 19, VeNCrypt Security Type
+			debug("Using security-type 19");
+			$this->dwrite($this->fp, pack('c*', 19));
+			//stream_socket_enable_crypto( $this->fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT );
+			$data = $this->dread($this->fp, 2); // read 2 bytes
+			debug("read: "); debug_dump($data);
+			$vencryptVersion = unpack('C*', $data);
+			// we use protocol version 0.2
+			$this->dwrite($this->fp, pack('c*', 0, 2));
+			// negotiation result (1 byte)
+			// 0 for indicating that the server can support the version chosen by the client
+			$data = $this->dread($this->fp, 1);
+			debug("read: "); debug_dump($data);
+			if ($data != "\00") {
+				$this->errstr = 'RFB auth error';
+				return false;				
+			}
+			// read the number of sub-types supported
+			$data = $this->dread($this->fp, 1);
+			$subtypes = unpack('C', $data)[1];
+			debug("Total subtypes: $subtypes");
+			// read subtypes
+			$data = $this->dread($this->fp, 4 * intval($subtypes));
+			debug("sub-types: "); debug_dump($data);
+			$subtypeList = unpack('N*', $data);
+			//debug(print_r($subtypeList,1));
+			if (in_array('262', $subtypeList)) {	// 262: X509Plain
+				debug("Using: 262-X509Plain VeNCrypt auth");
+				$this->dwrite($this->fp, pack('N*', 262));
+				$data = $this->dread($this->fp, 1);	// read response
+				if ($data != "\01") {
+					// something went wrong
+					$this->errstr = 'RFB auth error';
+					return false;				
+				}
+				stream_socket_enable_crypto( $this->fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT );
+				if (!$this->doVeNCryptAuth($username, $passwd)) {
+					$this->errstr = 'RFB auth error';
+					return false;				
+				}
+				
+			} else if (in_array('256', $subtypeList)) { // 256: Plain (unencrypted)
+				debug("Using: 256-Plain VeNCrypt auth (unencrypted!)");
+				$this->dwrite($this->fp, pack('N*', 256));
+				if (!$this->doVeNCryptAuth($username, $passwd)) {
+					$this->errstr = 'RFB auth error';
+					return false;				
+				}
+			} else {
+				// no supported subtype
+				$this->errstr = 'RFB auth error';
+				return false;				
+			}
+		
+			
+		} else {
 			$this->errstr = 'Unknown RFB auth type';
+			return false;			
+		}
+		
+		return true;
+	}
+
+	private function doVeNCryptAuth($username, $passwd) {
+		$this->dwrite($this->fp, pack('N*', strlen($username), strlen($passwd)));
+		$this->dwrite($this->fp, $username);
+		$this->dwrite($this->fp, $passwd);
+		// result
+		$data = $this->dread($this->fp, 4);
+		debug('auth result:');
+		debug_dump($data);
+		if ($data != "\00\00\00\00") {
+			// auth failure
 			return false;
 		}
-		
+		return true;
+	}
+	
+	private function doVNCAuth($passwd) {
 		// get auth challenge
-		if ($stype == '2') {
-			$data = $this->dread($this->fp, 16);
-			if ($data === false) {
-				$this->data = 'Unable to read auth challenge';
-				return false;
-			}
-			debug('Got auth challenge');
-			// send auth pass
-			$iv = mcrypt_create_iv(mcrypt_get_iv_size (MCRYPT_DES, MCRYPT_MODE_ECB), MCRYPT_RAND);
-			//echo "CHALLENGE!!\n";
-			$crypted = mcrypt_encrypt(MCRYPT_DES, $this->mirrorBits($passwd), $data, MCRYPT_MODE_ECB, $iv);
-			$this->dwrite($this->fp, $crypted);
-			
-			// auth result
-			$data = $this->dread($this->fp, 4);
-			if ($data != "\00\00\00\00") {
-				debug_dump($data);
-				$this->errstr = 'RFB auth error';
-				return false;
-			}
-			// auth OK
-			debug("Auth OK");
+		$data = $this->dread($this->fp, 16);
+		if ($data === false) {
+			$this->data = 'Unable to read auth challenge';
+			return false;
 		}
+		debug('Got auth challenge');
+		// send auth pass
+		$iv = mcrypt_create_iv(mcrypt_get_iv_size (MCRYPT_DES, MCRYPT_MODE_ECB), MCRYPT_RAND);
+		//echo "CHALLENGE!!\n";
+		$crypted = mcrypt_encrypt(MCRYPT_DES, $this->mirrorBits($passwd), $data, MCRYPT_MODE_ECB, $iv);
+		$this->dwrite($this->fp, $crypted);
+		
+		// auth result
+		$data = $this->dread($this->fp, 4);
+		if ($data != "\00\00\00\00") {
+			debug_dump($data);
+			$this->errstr = 'RFB auth error';
+			return false;
+		}
+		// auth OK
+		debug("Auth OK");
 		return true;
 	}
 	
@@ -469,8 +559,8 @@ class vncClient {
 			if ($img === false) {
 				debug('stream terminated');
 				$imgObj->error = 'disconnected';
-				$imgObj->errstr = $client->errstr;
-				$imgObj->errno = $client->errno;
+				$imgObj->errstr = 'Stream disconnected';
+				$imgObj->errno = -2;
 				
 				echo "event: error\n";
 				echo "data: " . json_encode($imgObj);

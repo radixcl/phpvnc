@@ -26,10 +26,11 @@ session_start();
 $host = $_SESSION['host'];
 $port = $_SESSION['port'];
 $passwd = $_SESSION['passwd'];
+$username = $_SESSION['username'];
 $socket = $_SESSION['socket'];
 
 $client = new vncClient();
-$auth = $client->auth($host, $port, $passwd);
+$auth = $client->auth($host, $port, $passwd, $username);
 
 if ($auth === false) {
 	ob_start();
