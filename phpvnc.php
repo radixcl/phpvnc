@@ -169,7 +169,7 @@ class vncClient {
 		$this->port = $port;
 		$this->passwd = $passwd;
 
-		$this->fp = fsockopen('tcp://' . $this->host, $this->port, $this->errno, $this->errstr, 30);
+		$this->fp = @fsockopen('tcp://' . $this->host, $this->port, $this->errno, $this->errstr, 30);
 		
 		if (!$this->fp) {
 			return false;
