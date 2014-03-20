@@ -190,6 +190,11 @@ class vncClient {
 		$data = $this->dread($this->fp, 4);	// get security types
 		
 		$stypes = unpack('c*', $data);
+		if (!isset($stypes[1])) {
+			$this->errstr = 'RFB error';
+			return false;							
+		}
+		
 		$stype = $stypes[1];
 		debug('security types: ');
 		debug(print_r($stypes, 1));
