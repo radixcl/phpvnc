@@ -169,7 +169,6 @@ class vncClient {
 		$this->port = $port;
 		$this->passwd = $passwd;
 
-		//$this->fp = stream_socket_client('tcp://' . $this->host . ':' . $this->port, $this->errno, $this->errstr, 30);
 		$this->fp = fsockopen('tcp://' . $this->host, $this->port, $this->errno, $this->errstr, 30);
 		
 		if (!$this->fp) {
