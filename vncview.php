@@ -5,6 +5,7 @@ $host = $_SESSION['host'];
 $port = $_SESSION['port'];
 $passwd = $_SESSION['passwd'];
 $socket = $_SESSION['socket'];
+$tls = $_SESSION['tls'];
 $sesid = $_COOKIE['PHPSESSID'];
 
 ?>

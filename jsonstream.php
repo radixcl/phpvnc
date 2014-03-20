@@ -26,14 +26,15 @@ session_start();
 $host = $_SESSION['host'];
 $port = $_SESSION['port'];
 $passwd = $_SESSION['passwd'];
+$username = $_SESSION['username'];
 $socket = $_SESSION['socket'];
 
 $client = new vncClient();
-$auth = $client->auth($host, $port, $passwd);
+$auth = $client->auth($host, $port, $passwd, $username);
 
 if ($auth === false) {
 	ob_start();
-	imagejpeg($img);
+	@imagejpeg($img);
 	$buf = ob_get_clean();
 	header("Content-Type: text/event-stream\n\n");
 	$imgObj->error = "errauth";

@@ -13,6 +13,47 @@ function debug_dump($data) {
 		error_log(vncClient::hex_dump($data, "\n", true));
 }
 
+class imgLib {
+	public static function rgb2png($width, $height, $data, $gd = false) {
+		// png header
+		$png = pack('C*', 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);   
+		
+		// compose IHDR chunk
+		$IHDR = pack('NN', $width, $height);	// image size
+		$IHDR .= pack('C*', 8, 2, 0, 0, 0);		// 8bpp, truecolor, compression, filter, interlace
+		
+		// write IHDR chunk
+		$png .= pack("N", strlen($IHDR));
+		$png .= "IHDR";
+		$png .= $IHDR;
+		$png .= pack("N", crc32("IHDR".$IHDR));
+		
+		// write data
+		$img = "";
+		for ($i=0;$i<$height;$i++) {
+			// prepending a filter type byte (0) to each scanline
+			$img .= "\0" . substr($data, ($i * $width * 3), ($width * 3));
+		}
+		
+		// compress data
+		$img = gzcompress($img ,0);	// no compression to get better performance
+		$png .= pack("N", strlen($img) );
+		$png .= "IDAT";
+		$png .= $img;
+		$png .= pack("N", crc32("IDAT".$img));
+		
+		// end
+		$png .= pack("N",0 );
+		$png .= "IEND";
+		$png .= pack("N", crc32("IEND"));
+		
+		if ($gd)
+			return(@imagecreatefromstring($png));
+		else
+			return($png);
+	}	
+}
+
 class vncClient {
 	private $host;
 	private $port;
@@ -123,12 +164,12 @@ class vncClient {
 	}
 
 	
-	public function auth($host, $port, $passwd) {
+	public function auth($host, $port, $passwd, $username = '') {
 		$this->host = $host;
 		$this->port = $port;
 		$this->passwd = $passwd;
 
-		$this->fp = @fsockopen($this->host, $this->port, $this->errno, $this->errstr, 30);
+		$this->fp = @fsockopen('tcp://' . $this->host, $this->port, $this->errno, $this->errstr, 30);
 		
 		if (!$this->fp) {
 			return false;
@@ -142,22 +183,117 @@ class vncClient {
 		}
 		
 		$version = substr($data, 4, 7);
-		$this->dwrite($this->fp, "RFB 003.003\n");
+		
+		$this->dwrite($this->fp, "RFB 003.008\n");
 		
 		// auth
-		$data = $this->dread($this->fp, 4);
+		$data = $this->dread($this->fp, 4);	// get security types
 		
-		if ($data !== "\00\00\00\02") {
+		$stypes = unpack('c*', $data);
+		$stype = $stypes[1];
+		debug('security types: ');
+		debug(print_r($stypes, 1));
+		debug_dump($data);
+		
+		if (in_array('1', $stypes) && $passwd == '') {
+			// stype = 1 (None), no password needed
+			debug("Using security-type 1");
+			$this->dwrite($this->fp, "\01");
+		} else if (in_array('2', $stypes) && $passwd != '') {
+			// stype = 2 (VNC Authentication)
+			debug("Using security-type 2");
+			$this->dwrite($this->fp, "\02");
+			if (!$this->doVNCAuth($passwd)) {
+				$this->errstr = 'RFB auth error';
+				return false;				
+			}			
+		} else if (in_array('19', $stypes) && $passwd != '') {
+			// stype = 19, VeNCrypt Security Type
+			debug("Using security-type 19");
+			$this->dwrite($this->fp, pack('c*', 19));
+			//stream_socket_enable_crypto( $this->fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT );
+			$data = $this->dread($this->fp, 2); // read 2 bytes
+			debug("read: "); debug_dump($data);
+			$vencryptVersion = unpack('C*', $data);
+			// we use protocol version 0.2
+			$this->dwrite($this->fp, pack('c*', 0, 2));
+			// negotiation result (1 byte)
+			// 0 for indicating that the server can support the version chosen by the client
+			$data = $this->dread($this->fp, 1);
+			debug("read: "); debug_dump($data);
+			if ($data != "\00") {
+				$this->errstr = 'RFB auth error';
+				return false;				
+			}
+			// read the number of sub-types supported
+			$data = $this->dread($this->fp, 1);
+			$subtypes = unpack('C', $data)[1];
+			debug("Total subtypes: $subtypes");
+			// read subtypes
+			$data = $this->dread($this->fp, 4 * intval($subtypes));
+			debug("sub-types: "); debug_dump($data);
+			$subtypeList = unpack('N*', $data);
+			//debug(print_r($subtypeList,1));
+			if (in_array('262', $subtypeList)) {	// 262: X509Plain
+				debug("Using: 262-X509Plain VeNCrypt auth");
+				$this->dwrite($this->fp, pack('N*', 262));
+				$data = $this->dread($this->fp, 1);	// read response
+				if ($data != "\01") {
+					// something went wrong
+					$this->errstr = 'RFB auth error';
+					return false;				
+				}
+				stream_socket_enable_crypto( $this->fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT );
+				if (!$this->doVeNCryptAuth($username, $passwd)) {
+					$this->errstr = 'RFB auth error';
+					return false;				
+				}
+				
+			} else if (in_array('256', $subtypeList)) { // 256: Plain (unencrypted)
+				debug("Using: 256-Plain VeNCrypt auth (unencrypted!)");
+				$this->dwrite($this->fp, pack('N*', 256));
+				if (!$this->doVeNCryptAuth($username, $passwd)) {
+					$this->errstr = 'RFB auth error';
+					return false;				
+				}
+			} else {
+				// no supported subtype
+				$this->errstr = 'RFB auth error';
+				return false;				
+			}
+		
+			
+		} else {
 			$this->errstr = 'Unknown RFB auth type';
-			return false;
+			return false;			
 		}
 		
+		return true;
+	}
+
+	private function doVeNCryptAuth($username, $passwd) {
+		$this->dwrite($this->fp, pack('N*', strlen($username), strlen($passwd)));
+		$this->dwrite($this->fp, $username);
+		$this->dwrite($this->fp, $passwd);
+		// result
+		$data = $this->dread($this->fp, 4);
+		debug('auth result:');
+		debug_dump($data);
+		if ($data != "\00\00\00\00") {
+			// auth failure
+			return false;
+		}
+		return true;
+	}
+	
+	private function doVNCAuth($passwd) {
 		// get auth challenge
 		$data = $this->dread($this->fp, 16);
 		if ($data === false) {
 			$this->data = 'Unable to read auth challenge';
 			return false;
 		}
+		debug('Got auth challenge');
 		// send auth pass
 		$iv = mcrypt_create_iv(mcrypt_get_iv_size (MCRYPT_DES, MCRYPT_MODE_ECB), MCRYPT_RAND);
 		//echo "CHALLENGE!!\n";
@@ -200,6 +336,7 @@ class vncClient {
 	}
 	
 	public function getRectangle($incremental=0, $oldimg=NULL) {
+		$time_start = microtime(1);
 		//debug(__FUNCTION__ . '(); start');
 		// server data
 		$width = $this->sdata['size1']; 	// remote screen widht
@@ -214,8 +351,16 @@ class vncClient {
 		$redshift = $this->sdata['shift1'];
 		$greenshift = $this->sdata['shift2'];
 		$blueshift = $this->sdata['shift3'];
-		$SLEN = $this->sdata['slen'];		
-	
+		$SLEN = $this->sdata['slen'];
+		
+		$status = socket_get_status($this->fp);
+		
+		if ($status['eof'] === true) {
+			$this->errstr = 'disconnected';
+			$this->errno = -1;
+			return(false);
+		}
+			
 		// send FramebufferUpdateRequest
 		$REQ = pack('C2n4', 3, $incremental, 0, 0, $width, $height);
 		if ($this->dwrite($this->fp, $REQ) === false) return false;
@@ -226,7 +371,7 @@ class vncClient {
 		else
 			$r = $this->dread_nonblocking($this->fp, 1);
 
-		if ($r === false) return false;	
+		if ($r === false) return false;
 
 		// manage non RFB messages
 		if ($r == "\01") {	// SetColourMapEntries
@@ -280,7 +425,6 @@ class vncClient {
 		
 		if (strlen($r) == 0 && $oldimg != NULL && $incremental == 1) {
 			// no changes on image
-			//debug(__FUNCTION__ . '(); no changes. end');
 			return($oldimg);
 		}
 
@@ -296,6 +440,7 @@ class vncClient {
 		
 		if (intval($data['count']) > 0)
 			debug(__FUNCTION__ . '(); total rectangles: ' . $data['count']);
+
 		for ($rects=0; $rects < $data['count']; $rects++) {
 			//Obtener la informaci—n rect‡ngulo
 			$r = $this->dread($this->fp, 12);
@@ -320,32 +465,32 @@ class vncClient {
 			$readmax = $rect['width'] * $BitsPerPixel / $divisor;
 			
 			debug(sprintf('%s(); rect %d start drawing', __FUNCTION__, $rects+1));
+			$imgbuf = '';
 			for ($i = 0; $i < $rect['height']; $i++) {
 				$r = $this->fullread($this->fp, $readmax);
-				if ($r === false) return false;	
+				if ($r === false) return false;
 				$rarr = unpack('C*', $r);
 				if (count($rarr) < $readmax) {
 					debug("Raw data is not correct. $i\n");
-					break;
+					return false;
 				}
 			 
 				time_nanosleep(0, 1000);
 				for ($j = 0; $j < $rect['width']; $j++) {
 					$offset = $j*4+1;
 					//echo "offset: $offset\n";
-					$roja = $rarr[$offset + $redshift / $divisor];
-					$verde = $rarr[$offset + $greenshift / $divisor];
-					$azul = $rarr[$offset + $blueshift / $divisor];
-					// fuck! this is _really_ slow!!!!
-					$color = imagecolorallocate($img, $roja, $verde, $azul);
-					imagesetpixel($img, $rect['x'] + $j, $rect['y'] + $i, $color);
-					imagecolordeallocate($img, $color);
+					$red = $rarr[$offset + $redshift / $divisor];
+					$green = $rarr[$offset + $greenshift / $divisor];
+					$blue = $rarr[$offset + $blueshift / $divisor];
+					$imgbuf .= pack('ccc', $red, $green, $blue);
 				}
 			}
+			$png = imgLib::rgb2png($rect['width'], $rect['height'], $imgbuf, true);
+			imagecopy($img, $png,  $rect['x'],  $rect['y'], 0, 0, $rect['width'], $rect['height']);
 			debug(sprintf('%s(); rect %d end drawing', __FUNCTION__, $rects+1));
-
-			
 		}
+		$time_end = microtime(1);
+		debug(sprintf('%s(); total drawing time: %f', __FUNCTION__, ($time_end - $time_start)));
 		return($img);	
 	}
 
@@ -411,7 +556,14 @@ class vncClient {
 			//debug(sprintf('%s(); connection status: %d', __FUNCTION__, connection_status()));
 			$img = $this->getRectangle(1, $img);
 			if ($img === false) {
-				debug("stream terminated");
+				debug('stream terminated');
+				$imgObj->error = 'disconnected';
+				$imgObj->errstr = 'Stream disconnected';
+				$imgObj->errno = -2;
+				
+				echo "event: error\n";
+				echo "data: " . json_encode($imgObj);
+				echo "\n\n";
 				return(false);
 			}
 			if ($json == false) {
